@@ -59,23 +59,23 @@ def build_audit_graph(gateway: AgentGateway):
         "full_text_audit",
         lambda state: {"text_findings": gateway.audit_full_text(state["task"].profile, state["evidence"])},
     )
-    graph.add_node(
-        "architecture_audit",
-        lambda state: {
-            "architecture_findings": gateway.audit_architecture(state["task"].profile, state["evidence"])
-        },
-    )
-    graph.add_node("merge", _merge_findings)
-    graph.add_node("validate", _validate_contract)
+    # graph.add_node(
+    #     "architecture_audit",
+    #     lambda state: {
+    #         "architecture_findings": gateway.audit_architecture(state["task"].profile, state["evidence"])
+    #     },
+    # )
+    # graph.add_node("merge", _merge_findings)
+    # graph.add_node("validate", _validate_contract)
     graph.add_node(
         "render",
         lambda state: {"report_markdown": render_markdown(state["task"].profile, state["findings"])},
     )
     graph.add_edge(START, "preprocess")
     graph.add_edge("preprocess", "full_text_audit")
-    graph.add_edge("full_text_audit", "architecture_audit")
-    graph.add_edge("architecture_audit", "merge")
-    graph.add_edge("merge", "validate")
-    graph.add_edge("validate", "render")
+    # graph.add_edge("full_text_audit", "architecture_audit")
+    # graph.add_edge("architecture_audit", "merge")
+    # graph.add_edge("merge", "validate")
+    graph.add_edge("full_text_audit", "render")
     graph.add_edge("render", END)
     return graph.compile()

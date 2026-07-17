@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
 
 class TaskStatus(StrEnum):
@@ -29,6 +29,28 @@ class Severity(StrEnum):
     INFO = "info"
 
 
+class FindingCategory(StrEnum):
+    CONSISTENCY = "一致性"
+    USABILITY = "可用性"
+    DEPLOYMENT = "部署"
+    SECURITY = "安全"
+    DATA_FLOW = "数据流"
+    READABILITY = "可读性"
+
+
+class ReviewDimension(StrEnum):
+    REQUIREMENTS_AND_POSITIONING = "需求与系统定位"
+    SOLUTION_AND_ARCHITECTURE = "方案与架构合理性"
+    PERFORMANCE_CAPACITY_RESOURCES = "性能、容量与资源"
+    SECURITY_DATA_COMPLIANCE = "安全、数据与合规"
+    AVAILABILITY_BACKUP_DR = "可用性、备份与灾备"
+    INTEGRATION_BOUNDARIES_DATA_FLOW = "集成、边界与数据流"
+    DEPLOYMENT_NETWORK_ENVIRONMENT = "部署、网络与环境"
+    IMPLEMENTATION_OPERATIONS = "实施与运维可行性"
+    DOCUMENT_GOVERNANCE = "文档治理与完整性"
+    CONSISTENCY_READABILITY = "一致性与可读性"
+
+
 class EvidenceRef(BaseModel):
     """A stable, auditable pointer to one source item in the audit package."""
 
@@ -41,21 +63,71 @@ class EvidenceRef(BaseModel):
 
 
 class Finding(BaseModel):
-    """The only judgment contract an audit agent is allowed to return."""
+    """The JSON contract returned by an audit agent.
+
+    The Chinese field names mirror the OpenClaw skill contract.  The two
+    legacy aliases keep previously produced Finding payloads readable while
+    ensuring new JSON schema/output uses the contract names.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     finding_id: str = Field(default_factory=lambda: f"fd_{uuid4().hex}")
     schema_version: Literal["finding-v1"] = "finding-v1"
     rule_id: str
-    category: str
+    category: FindingCategory
+    review_dimension: ReviewDimension
+    judgment: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("judgment", "decision"),
+        description="审核判定，必须取 OpenClaw skill 定义的发现判定之一",
+    )
     severity: Severity
     confidence: float = Field(ge=0, le=1)
     title: str
-    claim: str
-    recommendation: str
-    acceptance_criteria: str
+    text_evidence: list[str] = Field(
+        min_length=1,
+        validation_alias=AliasChoices("text_evidence", "textEvidence"),
+        description="一条或多条完整定位证据",
+    )
+    image_evidence: list[str] = Field(
+        min_length=1,
+        validation_alias=AliasChoices("image_evidence", "imageEvidence"),
+        description="完整图片定位证据；纯文本审核时必须写：不适用（纯文本审核）",
+    )
+    problem_description: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("problem_description", "issue_description", "claim"),
+        description="问题根因及影响范围",
+    )
+    impact: str = Field(min_length=1)
+    revision_suggestion: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("revision_suggestion", "recommendation"),
+        description="可执行的修订动作",
+    )
+    revision_location: str = Field(min_length=1)
+    completion_criteria: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("completion_criteria", "acceptance_criteria"),
+        description="可验证的完成状态",
+    )
     evidence_ids: list[str] = Field(min_length=1)
     root_cause_key: str
     agent_backend: AgentBackend
+
+    # Compatibility accessors for the current renderer and deduplication code.
+    @property
+    def claim(self) -> str:
+        return self.problem_description
+
+    @property
+    def recommendation(self) -> str:
+        return self.revision_suggestion
+
+    @property
+    def acceptance_criteria(self) -> str:
+        return self.completion_criteria
 
 
 class AuditProfile(BaseModel):

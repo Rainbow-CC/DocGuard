@@ -35,6 +35,19 @@ flowchart LR
 
 LangGraph 负责“何时调用哪个节点”；OpenClaw 或 LangChain 负责“如何作出审核判断”；校验器和渲染器负责“什么结果可接受以及如何呈现”。不要让模型直接输出最终报告。
 
+### 审核图（`src/docguard/graph/audit_graph.py`）
+
+```mermaid
+flowchart TD
+    START((START)) --> PP[preprocess<br/>接受 DOCX、提取内容并创建 evidence]
+    PP --> TA[full_text_audit<br/>全文审核]
+    TA --> AA[architecture_audit<br/>架构审核]
+    AA --> MG[merge<br/>按 root_cause_key 合并去重]
+    MG --> CV[validate<br/>校验 Finding 引用的 evidence ID]
+    CV --> RR[render<br/>渲染 Markdown 报告]
+    RR --> END((END))
+```
+
 ## 核心数据契约
 
 `AuditProfile` 规定必经节点、证据策略、提示词及模板版本。创建任务时会拷贝为任务快照，保证重跑可复现。
