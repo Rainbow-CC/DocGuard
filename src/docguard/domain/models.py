@@ -169,3 +169,13 @@ class TaskCreatedResponse(BaseModel):
     task_id: str
     status: TaskStatus
     status_url: HttpUrl | str
+
+
+class UploadDocumentResponse(BaseModel):
+    upload_id: str
+    agent_id: str
+    filename: str
+    size_bytes: int
+    content_sha256: str
+    agent_path: str
+    source_uri: str
