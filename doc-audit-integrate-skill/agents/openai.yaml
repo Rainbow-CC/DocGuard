@@ -1,0 +1,4 @@
+interface:
+  display_name: "DOCX 架构审核"
+  short_description: "解析 DOCX 结构并审核架构图。"
+  default_prompt: "使用 $docx-tech-architecture-audit 解析此 DOCX，将架构图关联到所属章节，并审核架构图与文本是否一致。"

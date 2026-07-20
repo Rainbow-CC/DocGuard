@@ -68,6 +68,27 @@ curl --noproxy '*' -sS http://127.0.0.1:18789/v1/chat/completions \
   }'
 ```
 
+Windows PowerShell（pwsh）：
+
+```powershell
+$env:OPENCLAW_API_TOKEN = '<Gateway Token>'
+
+curl.exe --noproxy "*" -sS http://127.0.0.1:18789/v1/models `
+  -H "Authorization: Bearer $env:OPENCLAW_API_TOKEN"
+
+$body = @'
+{
+  "model": "openclaw/default",
+  "messages": [{"role": "user", "content": "请回复 OK"}]
+}
+'@
+
+curl.exe --noproxy "*" -sS http://127.0.0.1:18789/v1/chat/completions `
+  -H "Authorization: Bearer $env:OPENCLAW_API_TOKEN" `
+  -H "Content-Type: application/json" `
+  --data-raw $body
+```
+
 查看服务状态、验证配置及重启：
 
 ```bash
@@ -122,10 +143,24 @@ curl -X POST http://127.0.0.1:8000/api/v1/agents/reviewer/uploads \
   -F "file=@./方案.docx;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ```
 
+Windows PowerShell（pwsh）：
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/v1/agents/reviewer/uploads `
+  -F "file=@.\方案.docx;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+```
+
 接口仅接受 DOCX，默认上限为 100 MiB。返回的 `content_sha256` 和 `source_uri` 可直接填入创建任务请求的 `document` 字段；向 Agent 发消息时提供返回的 `agent_path`。生产环境中将两个根目录环境变量都设置为 Linux 原生目录（例如 `/srv/docguard/inbox`）。
 
 ## 验证openclaw
 curl --noproxy '*' -i   http://127.0.0.1:18789/v1/models   -H "Authorization: Bearer 1749b6cb454a449683c063951721b2cacc7b98f45a10af0e9f505d453fde8fc7"
+
+Windows PowerShell（pwsh）：
+
+```powershell
+curl.exe --noproxy "*" -i http://127.0.0.1:18789/v1/models `
+  -H "Authorization: Bearer $env:OPENCLAW_API_TOKEN"
+```
 
 
 ## 参考
