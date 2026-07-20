@@ -76,3 +76,14 @@ def get_task(task_id: str):
         return store.get(task_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc
+
+
+@app.post("/api/v1/tasks/{task_id}/collect")
+def collect_task(task_id: str):
+    """Internal worker hook to reconcile an artifact after an SSE interruption."""
+    try:
+        return service.collect(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

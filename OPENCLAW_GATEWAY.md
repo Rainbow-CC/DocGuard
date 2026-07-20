@@ -121,9 +121,9 @@ Gateway Token 是该 Gateway 的运营者凭据，而不是普通、低权限 AP
 
 ## DocGuard 当前接入状态
 
-本项目已有 `OPENCLAW_GATEWAY_URL` 和 `OPENCLAW_API_TOKEN` 环境变量占位符，但 `src/docguard/adapters/agents.py` 中的 `OpenClawAgentGateway` 仍是待实现的适配边界。当前将任务 `agent_backend` 设为 `openclaw` 会抛出“not configured”错误；开启 Gateway endpoint 并不会自动完成 `Finding[]` 的 JSON 契约转换。
+`OpenClawAgentGateway` 使用 `POST /v1/responses` 和 `stream: true` 启动审核 skill。SSE 仅用于记录 response ID 与运行诊断；Agent 的权威交付物是任务专属共享目录中原子写入的 `findings.json`。DocGuard 读取该工件、核对 task/attempt/输入哈希/证据 ID 后，才渲染最终报告。
 
-实施适配器时，应由服务端请求上述 `/v1/chat/completions`（或受限的 `/tools/invoke`），将返回内容解析为 `Finding[]`，并继续保留本项目的证据校验与报告渲染流程。
+Responses 是同步长请求而非远端 job 查询接口。Gateway SSE 断开时，应用会把 attempt 置为 `collecting` 并继续检查工件；生产队列 worker 应在宽限期后才创建新的 attempt 重试。
 
 ## DOCX 上传到 Agent 可读目录
 
@@ -152,8 +152,12 @@ curl.exe -X POST http://127.0.0.1:8000/api/v1/agents/reviewer/uploads `
 
 接口仅接受 DOCX，默认上限为 100 MiB。返回的 `content_sha256` 和 `source_uri` 可直接填入创建任务请求的 `document` 字段；向 Agent 发消息时提供返回的 `agent_path`。生产环境中将两个根目录环境变量都设置为 Linux 原生目录（例如 `/srv/docguard/inbox`）。
 
-## 验证openclaw
-curl --noproxy '*' -i   http://127.0.0.1:18789/v1/models   -H "Authorization: Bearer 1749b6cb454a449683c063951721b2cacc7b98f45a10af0e9f505d453fde8fc7"
+## 验证 OpenClaw
+
+```bash
+curl --noproxy '*' -i http://127.0.0.1:18789/v1/models \
+  -H "Authorization: Bearer $OPENCLAW_API_TOKEN"
+```
 
 Windows PowerShell（pwsh）：
 

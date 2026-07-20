@@ -11,8 +11,20 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 class TaskStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
+    COLLECTING = "collecting"
+    RETRYING = "retrying"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AttemptStatus(StrEnum):
+    PREPARED = "prepared"
+    RUNNING = "running"
+    COLLECTING = "collecting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    LOST = "lost"
 
 
 class AgentBackend(StrEnum):
@@ -22,11 +34,19 @@ class AgentBackend(StrEnum):
 
 
 class Severity(StrEnum):
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    INFO = "info"
+    CRITICAL = "重大"
+    HIGH = "一般"
+    MEDIUM = "优化"
+    INFO = "观察"
+
+
+class FindingJudgment(StrEnum):
+    IMAGE_TEXT_CONFLICT = "图文不一致"
+    TEXT_CONFLICT = "文本不一致"
+    TEXT_INCOMPLETE = "文本不完整"
+    NO_DIAGRAM_EVIDENCE = "未提供图示证据"
+    UNCERTAIN = "不确定"
+    NOT_APPLICABLE = "不适用"
 
 
 class FindingCategory(StrEnum):
@@ -68,17 +88,18 @@ class Finding(BaseModel):
     The Chinese field names mirror the OpenClaw skill contract.  The two
     legacy aliases keep previously produced Finding payloads readable while
     ensuring new JSON schema/output uses the contract names.
+
+    TODO: is this class too complex?
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     finding_id: str = Field(default_factory=lambda: f"fd_{uuid4().hex}")
     schema_version: Literal["finding-v1"] = "finding-v1"
     rule_id: str
     category: FindingCategory
     review_dimension: ReviewDimension
-    judgment: str = Field(
-        min_length=1,
+    judgment: FindingJudgment = Field(
         validation_alias=AliasChoices("judgment", "decision"),
         description="审核判定，必须取 OpenClaw skill 定义的发现判定之一",
     )
@@ -163,6 +184,21 @@ class AuditTask(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     report_markdown: str | None = None
     checkpoint_thread_id: str | None = None
+    attempts: list[AuditAttempt] = Field(default_factory=list)
+
+
+class AuditAttempt(BaseModel):
+    """One independently recoverable delivery attempt for an audit task."""
+
+    attempt_id: str = Field(default_factory=lambda: str(uuid4()))
+    status: AttemptStatus = AttemptStatus.PREPARED
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    input_manifest_uri: str
+    result_uri: str
+    input_sha256: str
+    gateway_response_id: str | None = None
+    error: str | None = None
 
 
 class TaskCreatedResponse(BaseModel):

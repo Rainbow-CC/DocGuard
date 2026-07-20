@@ -18,6 +18,9 @@ class InMemoryTaskStore:
     def get(self, task_id: str) -> AuditTask:
         return self._tasks[task_id]
 
+    def list(self) -> list[AuditTask]:
+        return list(self._tasks.values())
+
     def update(self, task: AuditTask, status: TaskStatus | None = None, error: str | None = None) -> AuditTask:
         if status is not None:
             task.status = status
@@ -25,4 +28,3 @@ class InMemoryTaskStore:
         task.updated_at = datetime.now(UTC)
         self._tasks[task.task_id] = task
         return task
-
