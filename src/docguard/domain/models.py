@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import uuid4
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
+
+
+def _server_now() -> datetime:
+    """Return the DocGuard server's local time as an offset-aware datetime."""
+    return datetime.now().astimezone()
 
 
 class TaskStatus(StrEnum):
@@ -58,6 +63,7 @@ class FindingCategory(StrEnum):
     READABILITY = "可读性"
 
 
+# todo: do not validate this field currently, consider to delete it;
 class ReviewDimension(StrEnum):
     REQUIREMENTS_AND_POSITIONING = "需求与系统定位"
     SOLUTION_AND_ARCHITECTURE = "方案与架构合理性"
@@ -78,7 +84,6 @@ class Finding(BaseModel):
     legacy aliases keep previously produced Finding payloads readable while
     ensuring new JSON schema/output uses the contract names.
 
-    TODO: is this class too complex?
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -87,7 +92,7 @@ class Finding(BaseModel):
     schema_version: Literal["finding-v1"] = "finding-v1"
     rule_id: str
     category: FindingCategory
-    review_dimension: ReviewDimension
+    review_dimension: str
     judgment: FindingJudgment = Field(
         validation_alias=AliasChoices("judgment", "decision"),
         description="审核判定，必须取 OpenClaw skill 定义的发现判定之一",
@@ -167,8 +172,8 @@ class AuditTask(BaseModel):
     document: InputDocument
     profile: AuditProfile
     agent_backend: AgentBackend
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=_server_now)
+    updated_at: datetime = Field(default_factory=_server_now)
     error: str | None = None
     findings: list[Finding] = Field(default_factory=list)
     report_markdown: str | None = None
@@ -181,8 +186,8 @@ class AuditAttempt(BaseModel):
 
     attempt_id: str = Field(default_factory=lambda: str(uuid4()))
     status: AttemptStatus = AttemptStatus.PREPARED
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=_server_now)
+    updated_at: datetime = Field(default_factory=_server_now)
     input_manifest_uri: str
     result_uri: str
     input_sha256: str

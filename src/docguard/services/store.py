@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from docguard.domain.models import AuditTask, TaskStatus
 
@@ -25,6 +25,6 @@ class InMemoryTaskStore:
         if status is not None:
             task.status = status
         task.error = error
-        task.updated_at = datetime.now(UTC)
+        task.updated_at = datetime.now().astimezone()
         self._tasks[task.task_id] = task
         return task

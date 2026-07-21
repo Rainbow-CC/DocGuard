@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 
 from docguard.adapters.agents import GatewayExecutionError, OpenClawAgentGateway, gateway_for
 from docguard.domain.models import (
@@ -157,7 +157,7 @@ class AuditTaskService:
         attempt.status = status
         if error is not _UNSET:
             attempt.error = error
-        attempt.updated_at = datetime.now(UTC)
+        attempt.updated_at = datetime.now().astimezone()
 
     @staticmethod
     def _attempt(task: AuditTask, attempt_id: str | None) -> AuditAttempt:
