@@ -11,7 +11,7 @@ from docguard.domain.models import (
     CreateTaskRequest,
     TaskStatus,
 )
-from docguard.graph.audit_graph import build_audit_graph, build_evidence
+from docguard.graph.audit_graph import build_audit_graph
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
 from docguard.services.profiles import ProfileRegistry
 from docguard.services.reporting import render_markdown
@@ -62,9 +62,8 @@ class AuditTaskService:
         if task.status is TaskStatus.COMPLETED:
             return task
         attempt = self._attempt(task, attempt_id)
-        evidence = build_evidence(task)
         try:
-            result = self.artifacts.read_result(task, attempt, evidence)
+            result = self.artifacts.read_result(task, attempt)
         except ArtifactValidationError as exc:
             self._set_attempt_status(attempt, AttemptStatus.FAILED, str(exc))
             return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
@@ -90,8 +89,7 @@ class AuditTaskService:
         return reconciled
 
     def _run_openclaw(self, task: AuditTask) -> AuditTask:
-        evidence = build_evidence(task)
-        attempt = self.artifacts.prepare(task, evidence)
+        attempt = self.artifacts.prepare(task)
         task.attempts.append(attempt)
         self._set_attempt_status(attempt, AttemptStatus.RUNNING)
         self.store.update(task, status=TaskStatus.RUNNING)

@@ -121,7 +121,7 @@ Gateway Token 是该 Gateway 的运营者凭据，而不是普通、低权限 AP
 
 ## DocGuard 当前接入状态
 
-`OpenClawAgentGateway` 使用 `POST /v1/responses` 和 `stream: true` 启动审核 skill。SSE 仅用于记录 response ID 与运行诊断；Agent 的权威交付物是任务专属共享目录中原子写入的 `findings.json`。DocGuard 读取该工件、核对 task/attempt/输入哈希/证据 ID 后，才渲染最终报告。
+`OpenClawAgentGateway` 使用 `POST /v1/responses` 和 `stream: true` 启动审核 skill。SSE 仅用于记录 response ID 与运行诊断；Agent 的权威交付物是任务专属共享目录中原子写入的 `findings.json`。DocGuard 读取该工件、核对 task/attempt/输入哈希和 Finding JSON 契约后，才渲染最终报告。
 
 Responses 是同步长请求而非远端 job 查询接口。Gateway SSE 断开时，应用会把 attempt 置为 `collecting` 并继续检查工件；生产队列 worker 应在宽限期后才创建新的 attempt 重试。
 

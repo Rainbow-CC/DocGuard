@@ -6,15 +6,15 @@ from typing import Protocol
 
 import httpx
 
-from docguard.domain.models import AgentBackend, AuditAttempt, AuditProfile, AuditTask, EvidenceRef, Finding
+from docguard.domain.models import AgentBackend, AuditAttempt, AuditProfile, AuditTask, Finding
 
 
 class AgentGateway(Protocol):
     backend: AgentBackend
 
-    def audit_full_text(self, profile: AuditProfile, evidence: list[EvidenceRef]) -> list[Finding]: ...
+    def audit_full_text(self, profile: AuditProfile) -> list[Finding]: ...
 
-    def audit_architecture(self, profile: AuditProfile, evidence: list[EvidenceRef]) -> list[Finding]: ...
+    def audit_architecture(self, profile: AuditProfile) -> list[Finding]: ...
 
 
 class StubAgentGateway:
@@ -22,10 +22,10 @@ class StubAgentGateway:
 
     backend = AgentBackend.STUB
 
-    def audit_full_text(self, profile: AuditProfile, evidence: list[EvidenceRef]) -> list[Finding]:
+    def audit_full_text(self, profile: AuditProfile) -> list[Finding]:
         return []
 
-    def audit_architecture(self, profile: AuditProfile, evidence: list[EvidenceRef]) -> list[Finding]:
+    def audit_architecture(self, profile: AuditProfile) -> list[Finding]:
         return []
 
 
@@ -91,10 +91,10 @@ class OpenClawAgentGateway:
             ]
         )
 
-    def audit_full_text(self, profile: AuditProfile, evidence: list[EvidenceRef]) -> list[Finding]:
+    def audit_full_text(self, profile: AuditProfile) -> list[Finding]:
         return self._not_configured("full_text")
 
-    def audit_architecture(self, profile: AuditProfile, evidence: list[EvidenceRef]) -> list[Finding]:
+    def audit_architecture(self, profile: AuditProfile) -> list[Finding]:
         return self._not_configured("architecture")
 
     def _not_configured(self, audit_type: str) -> list[Finding]:
@@ -108,10 +108,10 @@ class LangChainAgentGateway:
 
     backend = AgentBackend.LANGCHAIN
 
-    def audit_full_text(self, profile: AuditProfile, evidence: list[EvidenceRef]) -> list[Finding]:
+    def audit_full_text(self, profile: AuditProfile) -> list[Finding]:
         return self._not_configured("full_text")
 
-    def audit_architecture(self, profile: AuditProfile, evidence: list[EvidenceRef]) -> list[Finding]:
+    def audit_architecture(self, profile: AuditProfile) -> list[Finding]:
         return self._not_configured("architecture")
 
     def _not_configured(self, audit_type: str) -> list[Finding]:

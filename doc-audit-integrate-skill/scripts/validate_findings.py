@@ -51,7 +51,7 @@ def main() -> int:
     parser.add_argument("--input", required=True, type=Path)
     args = parser.parse_args()
     manifest = require_fields(load_json(args.manifest), {
-        "schema_version", "task_id", "attempt_id", "document", "profile", "evidence", "allowed_evidence_ids"
+        "schema_version", "task_id", "attempt_id", "document", "profile"
     }, "manifest")
     result = require_fields(load_json(args.input), TOP_LEVEL, "result")
     if result["schema_version"] != "docguard-agent-result-v1":
@@ -67,7 +67,6 @@ def main() -> int:
         raise ValueError("result metadata does not match manifest")
     if not isinstance(result["findings"], list):
         raise ValueError("findings must be an array")
-    allowed = set(manifest["allowed_evidence_ids"])
     for index, raw in enumerate(result["findings"]):
         finding = require_fields(raw, FINDING_FIELDS, f"findings[{index}]")
         if finding["schema_version"] != "finding-v1" or finding["agent_backend"] != "openclaw":
@@ -81,8 +80,6 @@ def main() -> int:
         for key in ("text_evidence", "image_evidence", "evidence_ids"):
             if not isinstance(finding[key], list) or not finding[key]:
                 raise ValueError(f"findings[{index}].{key} must be a non-empty array")
-        if not set(finding["evidence_ids"]).issubset(allowed):
-            raise ValueError(f"findings[{index}] references an unknown evidence id")
     return 0
 
 

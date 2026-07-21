@@ -37,7 +37,7 @@ def _result(task, attempt) -> dict[str, object]:
                 "revision_suggestion": "统一术语。",
                 "revision_location": "第 1 章",
                 "completion_criteria": "全文仅保留一个术语。",
-                "evidence_ids": ["meta_001"],
+                "evidence_ids": ["txt_001"],
                 "root_cause_key": "terminology:example",
                 "agent_backend": "openclaw",
             }
@@ -83,6 +83,10 @@ def test_openclaw_result_artifact_completes_task(tmp_path: Path) -> None:
 
     assert completed.status is TaskStatus.COMPLETED
     assert completed.attempts[0].gateway_response_id == "resp_example"
+    manifest_path = tmp_path / completed.task_id / completed.attempts[0].attempt_id / "input-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert "evidence" not in manifest
+    assert "allowed_evidence_ids" not in manifest
     assert completed.findings[0].severity == "一般"
     assert "术语前后不一致" in (completed.report_markdown or "")
 

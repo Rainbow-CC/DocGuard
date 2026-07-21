@@ -19,7 +19,7 @@
 
 ## 证据与去重规则
 
-- `evidence_ids` 只能引用输入 manifest 的 `allowed_evidence_ids`，并且至少一个。
+- `evidence_ids` 必须引用本次 Agent 从 `audit-evidence.json` 生成的证据 ID，并且至少一个；应用仅校验其非空与 Finding 结构，不重建或白名单校验审计包证据。
 - `text_evidence` 每项使用 `第<章节号>章（<章节标题>），block:<索引>：<证据内容>` 或 `table:<索引>`；无法归属章节时明确写“未归属章节”。
 - 图文问题的 `image_evidence` 使用 `第<章节号>章（<章节标题>），image:<图片ID>：<证据内容>`；纯文本问题必须为 `['不适用（纯文本审核）']`。
 - 多张图或多处文本引起的同一根因必须合并为一个 finding，并在证据中列出全部相关位置。

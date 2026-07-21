@@ -9,16 +9,13 @@
 ```mermaid
 flowchart LR
     API["FastAPI 控制面"] --> Q["任务调度/Worker"]
-    Q --> LG["LangGraph 审核编排"]
-    LG --> PP["确定性预处理<br/>DOCX、表格、图件与审计包"]
-    PP --> AG["OpenClaw SSE 执行 skill"]
+    Q --> AG["OpenClaw SSE 执行 skill<br/>DOCX 提取与审核"]
     AG --> AR["原子交付 findings.json"]
     AR --> MG["应用收集、校验与去重"]
-    MG --> CV["证据与 Finding 契约校验"]
+    MG --> CV["Finding JSON 契约校验"]
     CV --> RR["程序化 Markdown/PDF 渲染"]
     RR --> UI["任务详情<br/>报告、证据与运行记录"]
-    PP --> OS[("对象存储：DOCX/审计包/图件")]
-    LG --> CP[("LangGraph Checkpoint")]
+    Q --> LG["LangGraph Stub 编排"]
     API --> DB[("PostgreSQL：任务/Profile/Finding")]
 ```
 
@@ -29,7 +26,7 @@ flowchart LR
 | FastAPI | 创建任务、查询状态、鉴权、展示下载 | `api/app.py` | 保持接口，补鉴权与分页 |
 | Worker | 领取长任务、重试、限流、租约 | FastAPI `BackgroundTasks` 演示实现 | 独立 worker + Redis/RabbitMQ/云队列 |
 | LangGraph | 节点编排、失败恢复、人工暂停恢复 | `graph/audit_graph.py` | `PostgresSaver` checkpoint |
-| 预处理 | 接受修订、DOCX/表格/图件提取、审计包 | 占位节点 | 独立确定性 DOCX 管线 |
+| 审计 Skill | 接受修订、DOCX/表格/图件提取、建立审计包与审核 | OpenClaw Agent | 受限运行时 + 独立审计包存储 |
 | AgentGateway | 启动审核并记录 Gateway SSE | Stub/OpenClaw/LangChain 接口 | 队列 worker + 重试 |
 | 工件收集 | 读取并校验 `findings.json` | 共享 WSL 目录 | 对象存储事件/队列 |
 | 存储 | 元数据、产物与原始响应 | 内存 store | PostgreSQL + S3/MinIO |
@@ -54,7 +51,7 @@ flowchart TD
 
 `AuditProfile` 规定必经节点、证据策略、提示词及模板版本。创建任务时会拷贝为任务快照，保证重跑可复现。
 
-`EvidenceRef` 是审计包中唯一可引用的证据，至少包含稳定 ID、位置、来源 URI 与哈希。`Finding` 必须引用一个或多个 `evidence_ids`。图中的校验节点会拒绝不存在的证据 ID；合并节点按 `root_cause_key` 作确定性去重；最终报告只读取校验通过的 findings。
+OpenClaw Agent 负责提取 DOCX、建立审计包并生成可定位证据。`Finding` 必须携带一个或多个由该审计包生成的 `evidence_ids`；应用只校验 `Finding` JSON 契约、任务元数据与根因去重，不重建或白名单校验证据包。
 
 建议生产环境为每个任务冻结：输入文件哈希、Profile 快照、提示词版本、模型引用、审计包 manifest、运行 ID 和原始模型响应 URI。
 
@@ -84,7 +81,7 @@ uv run ruff check .
 
 ## 接入真实审核能力
 
-1. 实现确定性预处理：接受修订后的 DOCX，输出不可变的审计包、文字/表格证据和最终可见图件；二进制与图片只存对象存储，Graph state 仅保存 URI、哈希、ID 和摘要。
+1. OpenClaw skill 负责接受修订后的 DOCX、建立审计包和生成证据；生产环境应将其工作目录与审计包保留策略纳入对象存储和审计日志。
 2. `OpenClawAgentGateway` 已通过 `POST /v1/responses` 的 SSE 启动审核，并保存 Gateway response ID；生产 worker 应在 SSE 中断后进入 `collecting` 并轮询该 attempt 的结果工件，而非立即重发。
 3. 实现 `LangChainAgentGateway`：使用模型的结构化输出能力将输出直接反序列化为 `Finding[]`，禁止返回 Markdown。
 4. 将 `InMemoryTaskStore` 替换为 PostgreSQL；将 `BackgroundTasks` 替换为独立队列 worker，并周期性调用 `collect_pending()`；为 LangGraph 配置持久化 checkpointer 和保留策略。

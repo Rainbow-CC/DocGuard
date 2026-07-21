@@ -71,17 +71,6 @@ class ReviewDimension(StrEnum):
     CONSISTENCY_READABILITY = "一致性与可读性"
 
 
-class EvidenceRef(BaseModel):
-    """A stable, auditable pointer to one source item in the audit package."""
-
-    evidence_id: str = Field(pattern=r"^(txt|tbl|fig|meta)_\d{3,}$")
-    kind: Literal["text", "table", "figure", "metadata"]
-    source_uri: str
-    location: str = Field(description="Section/page/table cell/figure region identifier")
-    sha256: str = Field(min_length=64, max_length=64)
-    excerpt: str | None = None
-
-
 class Finding(BaseModel):
     """The JSON contract returned by an audit agent.
 

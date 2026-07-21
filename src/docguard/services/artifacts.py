@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from docguard.domain.models import AgentBackend, AuditAttempt, AuditTask, EvidenceRef, Finding
+from docguard.domain.models import AgentBackend, AuditAttempt, AuditTask, Finding
 
 
 class AgentResult(BaseModel):
@@ -46,7 +46,7 @@ class ArtifactStore:
             agent_root=os.getenv("DOCGUARD_RESULT_AGENT_ROOT", "/home/ubuntu/docguard-results"),
         )
 
-    def prepare(self, task: AuditTask, evidence: list[EvidenceRef]) -> AuditAttempt:
+    def prepare(self, task: AuditTask) -> AuditAttempt:
         attempt = AuditAttempt(
             input_manifest_uri="pending",
             result_uri="pending",
@@ -61,8 +61,6 @@ class ArtifactStore:
             "attempt_id": attempt.attempt_id,
             "document": task.document.model_dump(mode="json"),
             "profile": task.profile.model_dump(mode="json"),
-            "evidence": [item.model_dump(mode="json") for item in evidence],
-            "allowed_evidence_ids": [item.evidence_id for item in evidence],
         }
         manifest_path = local_dir / "input-manifest.json"
         self._atomic_write_json(manifest_path, manifest)
@@ -70,7 +68,7 @@ class ArtifactStore:
         attempt.result_uri = f"file://{agent_dir / 'findings.json'}"
         return attempt
 
-    def read_result(self, task: AuditTask, attempt: AuditAttempt, evidence: list[EvidenceRef]) -> AgentResult | None:
+    def read_result(self, task: AuditTask, attempt: AuditAttempt) -> AgentResult | None:
         path = self._local_dir(task.task_id, attempt.attempt_id) / "findings.json"
         if not path.is_file():
             return None
@@ -83,13 +81,7 @@ class ArtifactStore:
         except Exception as exc:
             raise ArtifactValidationError(f"Invalid findings artifact: {exc}") from exc
         self._validate_metadata(task, attempt, result)
-        allowed_evidence_ids = {item.evidence_id for item in evidence}
         for finding in result.findings:
-            unknown = set(finding.evidence_ids) - allowed_evidence_ids
-            if unknown:
-                raise ArtifactValidationError(
-                    f"{finding.finding_id} refers to unknown evidence: {sorted(unknown)}"
-                )
             if finding.agent_backend is not AgentBackend.OPENCLAW:
                 raise ArtifactValidationError("OpenClaw artifacts must declare agent_backend=openclaw")
         return result

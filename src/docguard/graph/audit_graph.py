@@ -5,37 +5,16 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from docguard.adapters.agents import AgentGateway
-from docguard.domain.models import AuditTask, EvidenceRef, Finding
+from docguard.domain.models import AuditTask, Finding
 from docguard.services.reporting import render_markdown
 
 
 class AuditState(TypedDict, total=False):
     task: AuditTask
-    evidence: list[EvidenceRef]
     text_findings: list[Finding]
     architecture_findings: list[Finding]
     findings: list[Finding]
     report_markdown: str
-
-
-def build_evidence(task: AuditTask) -> list[EvidenceRef]:
-    """Production will replace this with the deterministic DOCX audit package."""
-    return [
-        EvidenceRef(
-            evidence_id="meta_001",
-            kind="metadata",
-            source_uri=task.document.source_uri,
-            location="document",
-            sha256=task.document.content_sha256,
-            excerpt=f"Accepted-revision audit package for {task.document.filename}",
-        )
-    ]
-
-
-def _preprocess(state: AuditState) -> dict:
-    """Placeholder for DOCX acceptance, extraction, rendering and manifest creation."""
-    task = state["task"]
-    return {"evidence": build_evidence(task)}
 
 
 def _merge_findings(state: AuditState) -> dict:
@@ -46,32 +25,19 @@ def _merge_findings(state: AuditState) -> dict:
     return {"findings": list(merged.values())}
 
 
-def _validate_contract(state: AuditState) -> dict:
-    valid_evidence_ids = {item.evidence_id for item in state["evidence"]}
-    for finding in state.get("findings", []):
-        unknown = set(finding.evidence_ids) - valid_evidence_ids
-        if unknown:
-            raise ValueError(f"{finding.finding_id} refers to unknown evidence: {sorted(unknown)}")
-    return {}
-
-
 def build_audit_graph(gateway: AgentGateway):
     graph = StateGraph(AuditState)
-    graph.add_node("preprocess", _preprocess)
     graph.add_node(
         "full_text_audit",
-        lambda state: {"text_findings": gateway.audit_full_text(state["task"].profile, state["evidence"])},
+        lambda state: {"text_findings": gateway.audit_full_text(state["task"].profile)},
     )
     graph.add_node("merge", _merge_findings)
-    graph.add_node("validate", _validate_contract)
     graph.add_node(
         "render",
         lambda state: {"report_markdown": render_markdown(state["task"].profile, state["findings"])},
     )
-    graph.add_edge(START, "preprocess")
-    graph.add_edge("preprocess", "full_text_audit")
+    graph.add_edge(START, "full_text_audit")
     graph.add_edge("full_text_audit", "merge")
-    graph.add_edge("merge", "validate")
-    graph.add_edge("validate", "render")
+    graph.add_edge("merge", "render")
     graph.add_edge("render", END)
     return graph.compile()

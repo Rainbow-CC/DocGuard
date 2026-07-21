@@ -13,7 +13,7 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 
 - `INPUT_DOCX`：只读 DOCX 路径。
 - `DOCGUARD_TASK_ID`、`DOCGUARD_ATTEMPT_ID`：本次交付身份。
-- `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含 Profile 快照、提示词版本和允许的 `evidence_id`。
+- `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含任务身份、文档引用、Profile 快照和提示词版本。
 - `DOCGUARD_RESULT_FILE`：唯一允许交付的最终文件，固定以 `findings.json` 结尾。
 
 `DOCGUARD_RESULT_FILE` 的父目录由应用预先创建，并只授予本 attempt 写权限。输入 DOCX、manifest、审计包和图件必须只读。禁止写入 `$HOME`、其他任务目录或任意未声明目录。
@@ -86,7 +86,7 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 
 4. 交付结构化 findings。
 
-   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile 与提示词版本；不得伪造或猜测它们。所有 `evidence_ids` 必须来自 manifest 的 `allowed_evidence_ids`。先生成临时文件，校验通过后才在同一文件系统原子交付：
+   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile 与提示词版本；不得伪造或猜测它们。`evidence_ids` 必须引用本次 Agent 自行生成的审计包证据。先生成临时文件，校验通过后才在同一文件系统原子交付：
 
    ```bash
    PARTIAL_FILE="$RESULT_DIR/findings.partial.json"
