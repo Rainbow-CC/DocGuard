@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from docguard.adapters.agents import GatewayExecutionError, OpenClawAgentGateway, gateway_for
@@ -18,6 +19,7 @@ from docguard.services.reporting import render_markdown
 from docguard.services.store import InMemoryTaskStore
 
 _UNSET = object()
+logger = logging.getLogger("docguard.tasks")
 
 
 class AuditTaskService:
@@ -39,10 +41,19 @@ class AuditTaskService:
             profile=self.profiles.get(request.profile_id),
             agent_backend=request.agent_backend,
         )
-        return self.store.create(task)
+        created = self.store.create(task)
+        logger.info(
+            "task.created task_id=%s backend=%s profile_id=%s filename=%s",
+            created.task_id,
+            created.agent_backend.value,
+            created.profile.profile_id,
+            created.document.filename,
+        )
+        return created
 
     def run(self, task_id: str) -> AuditTask:
         task = self.store.get(task_id)
+        logger.info("task.run.started task_id=%s backend=%s", task_id, task.agent_backend.value)
         self.store.update(task, status=TaskStatus.RUNNING)
         task.checkpoint_thread_id = task.task_id
         if task.agent_backend is AgentBackend.OPENCLAW:
@@ -52,23 +63,40 @@ class AuditTaskService:
             result = graph.invoke({"task": task}, {"configurable": {"thread_id": task.task_id}})
             task.findings = result["findings"]
             task.report_markdown = result["report_markdown"]
-            return self.store.update(task, status=TaskStatus.COMPLETED)
+            completed = self.store.update(task, status=TaskStatus.COMPLETED)
+            logger.info(
+                "task.run.completed task_id=%s findings=%s", task_id, len(completed.findings)
+            )
+            return completed
         except Exception as exc:
+            logger.exception("task.run.failed task_id=%s", task_id)
             return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
 
     def collect(self, task_id: str, attempt_id: str | None = None) -> AuditTask:
         """Reconcile a durable agent result after normal completion or an SSE failure."""
         task = self.store.get(task_id)
+        logger.info("task.collect.started task_id=%s attempt_id=%s", task_id, attempt_id)
         if task.status is TaskStatus.COMPLETED:
+            logger.info("task.collect.skipped_completed task_id=%s", task_id)
             return task
         attempt = self._attempt(task, attempt_id)
         try:
             result = self.artifacts.read_result(task, attempt)
         except ArtifactValidationError as exc:
+            logger.exception(
+                "task.collect.invalid_artifact task_id=%s attempt_id=%s",
+                task_id,
+                attempt.attempt_id,
+            )
             self._set_attempt_status(attempt, AttemptStatus.FAILED, str(exc))
             return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
         if result is None:
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
+            logger.info(
+                "task.collect.waiting_for_artifact task_id=%s attempt_id=%s",
+                task_id,
+                attempt.attempt_id,
+            )
             return self.store.update(task, status=TaskStatus.COLLECTING)
 
         # The application, not the agent, performs deterministic de-duplication and rendering.
@@ -78,7 +106,14 @@ class AuditTaskService:
         task.findings = list(merged.values())
         task.report_markdown = render_markdown(task.profile, task.findings)
         self._set_attempt_status(attempt, AttemptStatus.COMPLETED, None)
-        return self.store.update(task, status=TaskStatus.COMPLETED)
+        completed = self.store.update(task, status=TaskStatus.COMPLETED)
+        logger.info(
+            "task.collect.completed task_id=%s attempt_id=%s findings=%s",
+            task_id,
+            attempt.attempt_id,
+            len(completed.findings),
+        )
+        return completed
 
     def collect_pending(self) -> list[AuditTask]:
         """Hook for a recurring worker; safe to call repeatedly."""
@@ -89,6 +124,7 @@ class AuditTaskService:
         return reconciled
 
     def _run_openclaw(self, task: AuditTask) -> AuditTask:
+        logger.info("task.openclaw.prepare_started task_id=%s", task.task_id)
         attempt = self.artifacts.prepare(task)
         task.attempts.append(attempt)
         self._set_attempt_status(attempt, AttemptStatus.RUNNING)
@@ -96,10 +132,22 @@ class AuditTaskService:
         try:
             attempt.gateway_response_id = self.openclaw_gateway.execute_attempt(task, attempt)
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
+            logger.info(
+                "task.openclaw.gateway_finished task_id=%s attempt_id=%s response_id=%s",
+                task.task_id,
+                attempt.attempt_id,
+                attempt.gateway_response_id,
+            )
         except GatewayExecutionError as exc:
             # A transport failure is deliberately non-terminal: the agent may have
             # finished writing its artifact after the SSE connection disappeared.
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING, str(exc))
+            logger.exception(
+                "task.openclaw.gateway_error task_id=%s attempt_id=%s error=%s",
+                task.task_id,
+                attempt.attempt_id,
+                exc,
+            )
         return self.collect(task.task_id, attempt.attempt_id)
 
     @staticmethod

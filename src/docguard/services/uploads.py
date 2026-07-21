@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -8,6 +9,9 @@ from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from fastapi import UploadFile
+
+
+logger = logging.getLogger("docguard.uploads")
 
 
 DEFAULT_WRITE_ROOT = r"\\wsl.localhost\Ubuntu\home\ubuntu\docguard-inbox"
@@ -101,11 +105,12 @@ class UploadStorage:
 
             temporary_path.replace(final_path)
         except Exception:
+            logger.exception("upload.store_failed agent_id=%s filename=%s", agent_id, filename)
             temporary_path.unlink(missing_ok=True)
             raise
 
         agent_path = str(self.agent_root / agent_id / upload_id / "source.docx")
-        return StoredUpload(
+        stored = StoredUpload(
             upload_id=upload_id,
             agent_id=agent_id,
             filename=filename,
@@ -113,6 +118,14 @@ class UploadStorage:
             sha256=digest.hexdigest(),
             agent_path=agent_path,
         )
+        logger.info(
+            "upload.stored upload_id=%s agent_id=%s filename=%s size_bytes=%s",
+            stored.upload_id,
+            stored.agent_id,
+            stored.filename,
+            stored.size_bytes,
+        )
+        return stored
 
     @staticmethod
     def _validate_agent_id(agent_id: str) -> None:

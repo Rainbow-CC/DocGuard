@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -8,6 +9,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from docguard.domain.models import AgentBackend, AuditAttempt, AuditTask, Finding
+
+
+logger = logging.getLogger("docguard.artifacts")
 
 
 class AgentResult(BaseModel):
@@ -66,11 +70,24 @@ class ArtifactStore:
         self._atomic_write_json(manifest_path, manifest)
         attempt.input_manifest_uri = f"file://{agent_dir / 'input-manifest.json'}"
         attempt.result_uri = f"file://{agent_dir / 'findings.json'}"
+        logger.info(
+            "artifact.manifest_written task_id=%s attempt_id=%s manifest_path=%s result_path=%s",
+            task.task_id,
+            attempt.attempt_id,
+            manifest_path,
+            attempt.result_uri,
+        )
         return attempt
 
     def read_result(self, task: AuditTask, attempt: AuditAttempt) -> AgentResult | None:
         path = self._local_dir(task.task_id, attempt.attempt_id) / "findings.json"
         if not path.is_file():
+            logger.info(
+                "artifact.result_pending task_id=%s attempt_id=%s result_path=%s",
+                task.task_id,
+                attempt.attempt_id,
+                path,
+            )
             return None
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -84,6 +101,12 @@ class ArtifactStore:
         for finding in result.findings:
             if finding.agent_backend is not AgentBackend.OPENCLAW:
                 raise ArtifactValidationError("OpenClaw artifacts must declare agent_backend=openclaw")
+        logger.info(
+            "artifact.result_validated task_id=%s attempt_id=%s findings=%s",
+            task.task_id,
+            attempt.attempt_id,
+            len(result.findings),
+        )
         return result
 
     def _validate_metadata(self, task: AuditTask, attempt: AuditAttempt, result: AgentResult) -> None:

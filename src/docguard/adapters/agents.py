@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Protocol
 
 import httpx
 
 from docguard.domain.models import AgentBackend, AuditAttempt, AuditProfile, AuditTask, Finding
+
+
+logger = logging.getLogger("docguard.agents")
 
 
 class AgentGateway(Protocol):
@@ -45,6 +49,14 @@ class OpenClawAgentGateway:
         must atomically deliver findings.json to the task's result directory.
         """
         if not self.gateway_url or not self.api_token:
+            logger.error(
+                "openclaw.dispatch.configuration_missing task_id=%s attempt_id=%s "
+                "gateway_url_configured=%s api_token_configured=%s",
+                task.task_id,
+                attempt.attempt_id,
+                bool(self.gateway_url),
+                bool(self.api_token),
+            )
             raise GatewayExecutionError("OPENCLAW_GATEWAY_URL and OPENCLAW_API_TOKEN must be configured")
 
         request = {
@@ -55,6 +67,14 @@ class OpenClawAgentGateway:
         }
         headers = {"Authorization": f"Bearer {self.api_token}"}
         response_id: str | None = None
+        event_count = 0
+        logger.info(
+            "openclaw.dispatch.started task_id=%s attempt_id=%s endpoint=%s model=%s",
+            task.task_id,
+            attempt.attempt_id,
+            f"{self.gateway_url}/responses",
+            request["model"],
+        )
         try:
             timeout = httpx.Timeout(connect=10.0, read=900.0, write=60.0, pool=60.0)
             with httpx.Client(timeout=timeout) as client:
@@ -63,13 +83,32 @@ class OpenClawAgentGateway:
                 ) as response:
                     response.raise_for_status()
                     for event, payload in _iter_sse_events(response):
+                        event_count += 1
                         if event == "response.created":
                             response_id = _response_id(payload) or response_id
+                            logger.info(
+                                "openclaw.response.created task_id=%s attempt_id=%s response_id=%s",
+                                task.task_id,
+                                attempt.attempt_id,
+                                response_id,
+                            )
                         elif event == "response.failed":
                             message = _response_error(payload) or "OpenClaw reported response.failed"
                             raise GatewayExecutionError(message)
         except httpx.HTTPError as exc:
+            logger.exception(
+                "openclaw.dispatch.transport_failed task_id=%s attempt_id=%s",
+                task.task_id,
+                attempt.attempt_id,
+            )
             raise GatewayExecutionError(f"OpenClaw transport failure: {exc}") from exc
+        logger.info(
+            "openclaw.dispatch.finished task_id=%s attempt_id=%s response_id=%s sse_events=%s",
+            task.task_id,
+            attempt.attempt_id,
+            response_id,
+            event_count,
+        )
         return response_id
 
     @staticmethod
