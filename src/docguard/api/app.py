@@ -2,6 +2,7 @@ import logging
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import Response
 
 from docguard.domain.models import CreateTaskRequest, TaskCreatedResponse, UploadDocumentResponse
 from docguard.logging_config import configure_logging
@@ -86,6 +87,25 @@ def get_task(task_id: str):
         return store.get(task_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc
+
+
+@app.get("/api/v1/tasks/{task_id}/report.md")
+def download_task_report(task_id: str) -> Response:
+    """Download the deterministic Markdown report for a completed task."""
+    try:
+        task = store.get(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    if task.report_markdown is None:
+        raise HTTPException(status_code=409, detail="Report is not available yet")
+
+    filename = f"docguard-report-{task.task_id}.md"
+    logger.info("task.report.downloaded task_id=%s filename=%s", task.task_id, filename)
+    return Response(
+        content=task.report_markdown,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post("/api/v1/tasks/{task_id}/collect")
