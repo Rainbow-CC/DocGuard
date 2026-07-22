@@ -163,6 +163,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
+    { name = "jinja2" },
     { name = "langgraph" },
     { name = "pydantic" },
 ]
@@ -178,6 +179,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115,<1.0" },
     { name = "httpx", specifier = ">=0.28,<1.0" },
+    { name = "jinja2", specifier = ">=3.1,<4.0" },
     { name = "langgraph", specifier = ">=0.4,<2.0" },
     { name = "pydantic", specifier = ">=2.10,<3.0" },
 ]

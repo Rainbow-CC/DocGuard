@@ -1,13 +1,16 @@
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from docguard.domain.models import CreateTaskRequest, TaskCreatedResponse, UploadDocumentResponse
 from docguard.logging_config import configure_logging
 from docguard.services.profiles import ProfileRegistry
-from docguard.services.store import InMemoryTaskStore
+from docguard.services.store import SQLiteTaskStore
 from docguard.services.tasks import AuditTaskService
 from docguard.services.uploads import UploadStorage, UploadTooLargeError, UploadValidationError
 
@@ -15,14 +18,24 @@ from docguard.services.uploads import UploadStorage, UploadTooLargeError, Upload
 configure_logging()
 logger = logging.getLogger("docguard.api")
 
-store = InMemoryTaskStore()
+store = SQLiteTaskStore.from_environment()
 service = AuditTaskService(store, ProfileRegistry())
 app = FastAPI(title="DocGuard", version="0.1.0")
 app.state.upload_storage = UploadStorage.from_environment()
 
+_WEB_ROOT = Path(__file__).parent
+app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
+templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
+
 
 def get_upload_storage(request: Request) -> UploadStorage:
     return request.app.state.upload_storage
+
+
+@app.get("/", include_in_schema=False)
+def dashboard(request: Request):
+    """Serve the operator console while keeping the API usable independently."""
+    return templates.TemplateResponse(request=request, name="dashboard.html")
 
 
 @app.get("/healthz")
@@ -44,6 +57,12 @@ def create_task(request: CreateTaskRequest, background_tasks: BackgroundTasks) -
         status=task.status,
         status_url=f"/api/v1/tasks/{task.task_id}",
     )
+
+
+@app.get("/api/v1/tasks")
+def list_tasks():
+    """List tasks newest first for the operator console."""
+    return sorted(store.list(), key=lambda task: task.created_at, reverse=True)
 
 
 @app.post(

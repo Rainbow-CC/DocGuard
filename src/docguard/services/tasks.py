@@ -3,7 +3,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from docguard.adapters.agents import GatewayExecutionError, OpenClawAgentGateway, gateway_for
+from docguard.adapters.agents import (
+    GatewayExecutionError,
+    OpenClawAgentGateway,
+    OpenClawAttemptGateway,
+    graph_gateway_for,
+)
 from docguard.domain.models import (
     AgentBackend,
     AttemptStatus,
@@ -16,7 +21,7 @@ from docguard.graph.audit_graph import build_audit_graph
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
 from docguard.services.profiles import ProfileRegistry
 from docguard.services.reporting import render_markdown
-from docguard.services.store import InMemoryTaskStore
+from docguard.services.store import TaskStore
 
 _UNSET = object()
 logger = logging.getLogger("docguard.tasks")
@@ -25,10 +30,10 @@ logger = logging.getLogger("docguard.tasks")
 class AuditTaskService:
     def __init__(
         self,
-        store: InMemoryTaskStore,
+        store: TaskStore,
         profiles: ProfileRegistry,
         artifacts: ArtifactStore | None = None,
-        openclaw_gateway: OpenClawAgentGateway | None = None,
+        openclaw_gateway: OpenClawAttemptGateway | None = None,
     ) -> None:
         self.store = store
         self.profiles = profiles
@@ -59,7 +64,7 @@ class AuditTaskService:
         if task.agent_backend is AgentBackend.OPENCLAW:
             return self._run_openclaw(task)
         try:
-            graph = build_audit_graph(gateway_for(task.agent_backend))
+            graph = build_audit_graph(graph_gateway_for(task.agent_backend))
             result = graph.invoke({"task": task}, {"configurable": {"thread_id": task.task_id}})
             task.findings = result["findings"]
             task.report_markdown = result["report_markdown"]

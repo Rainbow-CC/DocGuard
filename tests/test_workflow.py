@@ -1,6 +1,6 @@
 from hashlib import sha256
 
-from docguard.domain.models import CreateTaskRequest, InputDocument, TaskStatus
+from docguard.domain.models import AgentBackend, CreateTaskRequest, InputDocument, TaskStatus
 from docguard.services.profiles import ProfileRegistry
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
@@ -11,7 +11,8 @@ def test_stub_task_completes_with_programmatic_report() -> None:
     service = AuditTaskService(InMemoryTaskStore(), ProfileRegistry())
     task = service.create(
         CreateTaskRequest(
-            document=InputDocument(filename="sample.docx", content_sha256=digest, source_uri="file:///sample.docx")
+            document=InputDocument(filename="sample.docx", content_sha256=digest, source_uri="file:///sample.docx"),
+            agent_backend=AgentBackend.STUB,
         )
     )
 

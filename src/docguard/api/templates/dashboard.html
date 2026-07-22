@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a1020">
+  <title>DocGuard · 审核控制台</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/dashboard.css') }}">
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="DocGuard 首页">
+        <span class="brand-mark"><i></i><i></i><i></i></span>
+        <span>DOC<span>GUARD</span></span>
+      </a>
+      <div class="topbar-meta"><span class="live-dot"></span>审核控制台 <span class="divider"></span> CN · PROD</div>
+    </header>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">DOCUMENT ASSURANCE PLATFORM</p>
+        <h2>CIIT技术文档审核平台<br><em></em></h2>
+        <p class="hero-copy">将架构、合规与交付风险归集为可追溯的审核证据。</p>
+      </div>
+      <div class="hero-stat" aria-label="系统状态">
+        <span>服务状态</span><strong><b></b> OPERATIVE</strong><small>/ v0.1.0</small>
+      </div>
+    </section>
+
+    <section class="workspace" aria-label="新建审核">
+      <div class="section-heading"><span class="section-index">01</span><div><p>NEW MANDATE</p><h2>发起文档审核</h2></div><span class="rule"></span></div>
+      <form id="audit-form" novalidate>
+        <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="选择 DOCX 文件">
+          <input id="document-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+          <div class="file-glyph"><span></span><span></span><span></span></div>
+          <div class="drop-copy"><strong id="drop-title">上传待审文件</strong><span id="drop-description">拖放 DOCX 文件至此处，或 <u>浏览文件</u></span></div>
+          <span class="file-limit">DOCX · 最大 100 MB</span>
+        </div>
+
+        <div class="form-row">
+          <label class="field-label">审核执行器
+            <span class="select-wrap"><select id="backend" name="backend"><option value="stub">标准审核 / Stub</option><option value="openclaw" selected>深度审核 / OpenClaw</option><option value="langchain">模型审核 / LangChain</option></select></span>
+          </label>
+          <div class="profile-note"><span>审计框架</span><strong>TECHNICAL-AUDIT <i>v1</i></strong><small>10 个风险维度 · 证据驱动</small></div>
+          <button id="submit-button" class="primary-button" type="submit"><span>开始审核</span><b>↗</b></button>
+        </div>
+      </form>
+      <p id="form-message" class="form-message" role="status"></p>
+    </section>
+
+    <section class="monitor" aria-label="审核任务状态">
+      <div class="section-heading"><span class="section-index">02</span><div><p>LIVE MONITOR</p><h2>任务队列</h2></div><span class="rule"></span><span id="refresh-label" class="refresh-label">加载任务中</span></div>
+      <div id="task-list" class="task-list" aria-live="polite"></div>
+      <article id="task-card" class="task-card task-empty" hidden>
+        <div class="task-primary"><div id="task-status" class="status-pill neutral">未开始</div><div><h3 id="task-name">尚未提交审核文件</h3><p id="task-id">提交 DOCX 后将在此跟踪审核进度</p></div></div>
+        <div class="task-metrics"><div><span>发现项</span><strong id="findings-count">—</strong></div><div><span>执行器</span><strong id="backend-name">—</strong></div><div><span>更新时间</span><strong id="updated-at">—</strong></div></div>
+        <div class="task-actions"><a id="report-link" class="report-link disabled" href="#" aria-disabled="true">获取报告 <span>↓</span></a></div>
+      </article>
+      <div id="findings-panel" class="findings-panel" hidden>
+        <div class="findings-header"><span>风险发现摘要</span><small id="findings-description"></small></div>
+        <div id="findings-list" class="findings-list"></div>
+      </div>
+    </section>
+
+    <section class="principles">
+      <div><span>01</span><strong>证据可定位</strong><p>每项判断均需关联原始证据。</p></div>
+      <div><span>02</span><strong>结果可复核</strong><p>结构化 Findings 由程序统一校验。</p></div>
+      <div><span>03</span><strong>报告可交付</strong><p>一键导出标准化审核报告。</p></div>
+    </section>
+    <footer><span>DOCGUARD / CONTROL ROOM</span><span>SECURED DOCUMENT INTELLIGENCE</span></footer>
+  </main>
+  <script src="{{ url_for('static', path='/dashboard.js') }}" defer></script>
+</body>
+</html>

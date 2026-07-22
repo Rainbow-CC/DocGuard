@@ -1,0 +1,21 @@
+from fastapi.testclient import TestClient
+
+from docguard.api.app import app
+
+
+def test_dashboard_and_assets_are_served() -> None:
+    client = TestClient(app)
+
+    page = client.get("/")
+
+    assert page.status_code == 200
+    assert "DOCGUARD" in page.text
+    assert client.get("/static/dashboard.css").status_code == 200
+    assert client.get("/static/dashboard.js").status_code == 200
+
+
+def test_task_list_endpoint_returns_a_list() -> None:
+    response = TestClient(app).get("/api/v1/tasks")
+
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)

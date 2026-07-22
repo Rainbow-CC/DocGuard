@@ -13,12 +13,18 @@ from docguard.domain.models import AgentBackend, AuditAttempt, AuditProfile, Aud
 logger = logging.getLogger("docguard.agents")
 
 
-class AgentGateway(Protocol):
-    backend: AgentBackend
+class GraphAuditGateway(Protocol):
+    """Synchronous Finding producer consumed by the LangGraph audit flow."""
 
     def audit_full_text(self, profile: AuditProfile) -> list[Finding]: ...
 
     def audit_architecture(self, profile: AuditProfile) -> list[Finding]: ...
+
+
+class OpenClawAttemptGateway(Protocol):
+    """Dispatches an artifact-delivered OpenClaw audit attempt."""
+
+    def execute_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None: ...
 
 
 class StubAgentGateway:
@@ -34,9 +40,7 @@ class StubAgentGateway:
 
 
 class OpenClawAgentGateway:
-    """Runs an audit skill through OpenResponses; findings arrive only as an artifact."""
-
-    backend = AgentBackend.OPENCLAW
+    """Dispatches an audit skill through OpenResponses; results arrive as an artifact."""
 
     def __init__(self, gateway_url: str | None = None, api_token: str | None = None) -> None:
         self.gateway_url = (gateway_url or os.getenv("OPENCLAW_GATEWAY_URL", "")).rstrip("/")
@@ -130,18 +134,6 @@ class OpenClawAgentGateway:
             ]
         )
 
-    def audit_full_text(self, profile: AuditProfile) -> list[Finding]:
-        return self._not_configured("full_text")
-
-    def audit_architecture(self, profile: AuditProfile) -> list[Finding]:
-        return self._not_configured("architecture")
-
-    def _not_configured(self, audit_type: str) -> list[Finding]:
-        raise RuntimeError(
-            f"OpenClaw {audit_type} is artifact-delivered. Use execute_attempt() and collect findings.json."
-        )
-
-
 class LangChainAgentGateway:
     """Integration seam for a LangChain structured-output runnable."""
 
@@ -160,14 +152,21 @@ class LangChainAgentGateway:
         )
 
 
-def gateway_for(backend: AgentBackend) -> AgentGateway:
+def graph_gateway_for(backend: AgentBackend) -> GraphAuditGateway:
+    """Create a gateway that can synchronously supply findings to ``audit_graph``.
+
+    OpenClaw deliberately does not implement this contract: its result is a durable
+    artifact that may arrive after the SSE request finishes or disconnects.
+    """
     match backend:
         case AgentBackend.STUB:
             return StubAgentGateway()
-        case AgentBackend.OPENCLAW:
-            return OpenClawAgentGateway()
         case AgentBackend.LANGCHAIN:
             return LangChainAgentGateway()
+        case AgentBackend.OPENCLAW:
+            raise ValueError(
+                "OpenClaw is artifact-delivered; use the OpenClaw attempt path instead of audit_graph"
+            )
 
 
 class GatewayExecutionError(RuntimeError):

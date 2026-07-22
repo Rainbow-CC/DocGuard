@@ -2,7 +2,7 @@
 
 面向 DOCX 技术文档的证据驱动审核服务骨架。它坚持一条边界：**agent 只输出结构化审核判断 `Finding[]`；程序负责文件处理、流程控制、证据校验与最终报告。**
 
-当前版本默认使用确定性的 `stub` 审核执行器。`openclaw` 后端通过 Gateway 的 OpenResponses SSE 启动长任务，Agent 将结构化结果原子写入共享 `findings.json`，应用随后校验并渲染报告。
+当前版本默认使用 `openclaw` 审核执行器；它通过 Gateway 的 OpenResponses SSE 启动长任务，Agent 将结构化结果原子写入共享 `findings.json`，应用随后校验并渲染报告。确定性的 `stub` 执行器仍可用于本地开发与测试。
 
 ## 技术架构
 
@@ -16,7 +16,7 @@ flowchart LR
     CV --> RR["程序化 Markdown/PDF 渲染"]
     RR --> UI["任务详情<br/>报告、证据与运行记录"]
     Q --> LG["LangGraph Stub 编排"]
-    API --> DB[("PostgreSQL：任务/Profile/Finding")]
+    API --> DB[("SQLite：任务状态/Finding/报告")]
 ```
 
 ### 分层职责
@@ -27,9 +27,10 @@ flowchart LR
 | Worker | 领取长任务、重试、限流、租约 | FastAPI `BackgroundTasks` 演示实现 | 独立 worker + Redis/RabbitMQ/云队列 |
 | LangGraph | 节点编排、失败恢复、人工暂停恢复 | `graph/audit_graph.py` | `PostgresSaver` checkpoint |
 | 审计 Skill | 接受修订、DOCX/表格/图件提取、建立审计包与审核 | OpenClaw Agent | 受限运行时 + 独立审计包存储 |
-| AgentGateway | 启动审核并记录 Gateway SSE | Stub/OpenClaw/LangChain 接口 | 队列 worker + 重试 |
+| 同步审核 Gateway | 向 LangGraph 返回 `Finding[]` | Stub/LangChain 接口 | 结构化输出执行器 |
+| OpenClaw 调度器 | 启动 artifact-delivered attempt 并记录 Gateway SSE | `OpenClawAgentGateway` | 队列 worker + 重试 |
 | 工件收集 | 读取并校验 `findings.json` | 共享 WSL 目录 | 对象存储事件/队列 |
-| 存储 | 元数据、产物与原始响应 | 内存 store | PostgreSQL + S3/MinIO |
+| 存储 | 任务元数据、状态、Finding 与报告 | SQLite `data/docguard.sqlite3` | PostgreSQL + S3/MinIO |
 | 报告 | Findings 渲染及下载 | Markdown | 固定模板 Markdown/PDF |
 
 LangGraph 负责同步的 Stub 编排；OpenClaw 负责审核判断和工件交付；校验器和渲染器负责什么结果可接受以及如何呈现。不要让模型直接输出最终报告。
@@ -69,7 +70,7 @@ uv run fastapi dev src/docguard/api/app.py
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/tasks \
   -H "Content-Type: application/json" \
-  -d '{"document":{"filename":"方案.docx","content_sha256":"<64位SHA256>","source_uri":"s3://audit-input/方案.docx"},"agent_backend":"stub"}'
+  -d '{"document":{"filename":"方案.docx","content_sha256":"<64位SHA256>","source_uri":"s3://audit-input/方案.docx"},"agent_backend":"openclaw"}'
 ```
 
 运行检查：
@@ -84,7 +85,7 @@ uv run ruff check .
 1. OpenClaw skill 负责接受修订后的 DOCX、建立审计包和生成证据；生产环境应将其工作目录与审计包保留策略纳入对象存储和审计日志。
 2. `OpenClawAgentGateway` 已通过 `POST /v1/responses` 的 SSE 启动审核，并保存 Gateway response ID；生产 worker 应在 SSE 中断后进入 `collecting` 并轮询该 attempt 的结果工件，而非立即重发。
 3. 实现 `LangChainAgentGateway`：使用模型的结构化输出能力将输出直接反序列化为 `Finding[]`，禁止返回 Markdown。
-4. 将 `InMemoryTaskStore` 替换为 PostgreSQL；将 `BackgroundTasks` 替换为独立队列 worker，并周期性调用 `collect_pending()`；为 LangGraph 配置持久化 checkpointer 和保留策略。
+4. 将 SQLite 任务库替换为 PostgreSQL；将 `BackgroundTasks` 替换为独立队列 worker，并周期性调用 `collect_pending()`；为 LangGraph 配置持久化 checkpointer 和保留策略。
 5. 补充人工复核节点、任务级重跑、RBAC、对象存储签名访问、评测集及可观测性。
 
 ### OpenClaw 安全边界
@@ -105,4 +106,4 @@ tests/            # 最小工作流回归测试
 
 ## 当前边界
 
-该仓库是框架而不是完整 DOCX 审核产品。DOCX 接受修订、解析、渲染、PDF 输出、数据库、对象存储、队列与真实模型调用尚未实现；它们都已经有明确的扩展位置，且不会破坏已固定的任务、证据、finding 和报告边界。
+该仓库是框架而不是完整 DOCX 审核产品。DOCX 接受修订、解析、渲染、PDF 输出、对象存储、队列与真实模型调用尚未实现；本地 SQLite 已用于持久化任务状态，它们都已经有明确的扩展位置，且不会破坏已固定的任务、证据、finding 和报告边界。

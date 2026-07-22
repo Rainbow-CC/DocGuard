@@ -163,7 +163,7 @@ class InputDocument(BaseModel):
 class CreateTaskRequest(BaseModel):
     document: InputDocument
     profile_id: str = "technical-audit"
-    agent_backend: AgentBackend = AgentBackend.STUB
+    agent_backend: AgentBackend = AgentBackend.OPENCLAW
 
 
 class AuditTask(BaseModel):

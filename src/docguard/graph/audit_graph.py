@@ -4,7 +4,7 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from docguard.adapters.agents import AgentGateway
+from docguard.adapters.agents import GraphAuditGateway
 from docguard.domain.models import AuditTask, Finding
 from docguard.services.reporting import render_markdown
 
@@ -25,7 +25,7 @@ def _merge_findings(state: AuditState) -> dict:
     return {"findings": list(merged.values())}
 
 
-def build_audit_graph(gateway: AgentGateway):
+def build_audit_graph(gateway: GraphAuditGateway):
     graph = StateGraph(AuditState)
     graph.add_node(
         "full_text_audit",
