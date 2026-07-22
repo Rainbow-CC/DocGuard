@@ -52,7 +52,7 @@ flowchart TD
 
 `AuditProfile` 规定必经节点、证据策略、提示词及模板版本。创建任务时会拷贝为任务快照，保证重跑可复现。
 
-OpenClaw Agent 负责提取 DOCX、建立审计包并生成可定位证据。`Finding` 必须携带一个或多个由该审计包生成的 `evidence_ids`；应用只校验 `Finding` JSON 契约、任务元数据与根因去重，不重建或白名单校验证据包。
+OpenClaw Agent 负责提取 DOCX、建立审计包并生成可定位证据。新 `Finding` 使用结构化 `evidence_refs` 引用审计包中的 block、表格或图片；应用校验引用 ID、原文摘录、表格选择器与图片区域，并在任务详情中展示可复核的原文/图件。兼容既有 `evidence_ids`，但旧工件不会获得新证据阅读器的定位能力。
 
 建议生产环境为每个任务冻结：输入文件哈希、Profile 快照、提示词版本、模型引用、审计包 manifest、运行 ID 和原始模型响应 URI。
 

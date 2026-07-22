@@ -128,6 +128,7 @@ class OpenClawAgentGateway:
                 f"DOCGUARD_ATTEMPT_ID={attempt.attempt_id}",
                 f"DOCGUARD_AUDIT_MANIFEST={manifest_path}",
                 f"DOCGUARD_RESULT_FILE={result_path}",
+                f"DOCGUARD_EVIDENCE_DIR={result_path.rsplit('/', maxsplit=1)[0]}/evidence",
                 "只读输入 DOCX 和 manifest；不得输出最终 Markdown 审核报告。",
                 "必须先校验结果，再以同目录临时文件加原子重命名交付 findings.json。",
                 "聊天最终答复只确认工件已写入，不得在答复中输出 findings。",

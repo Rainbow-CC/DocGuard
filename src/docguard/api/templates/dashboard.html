@@ -71,6 +71,11 @@
     </section>
     <footer><span>DOCGUARD / CONTROL ROOM</span><span>SECURED DOCUMENT INTELLIGENCE</span></footer>
   </main>
+  <aside id="evidence-drawer" class="evidence-drawer" aria-label="证据复核" aria-hidden="true" hidden>
+    <div class="evidence-drawer-head"><div><small>TRACEABLE EVIDENCE</small><h2 id="evidence-title">证据复核</h2></div><button id="evidence-close" class="evidence-close" type="button" aria-label="关闭证据">×</button></div>
+    <div id="evidence-content" class="evidence-content"></div>
+  </aside>
+  <div id="evidence-backdrop" class="evidence-backdrop" hidden></div>
   <script src="{{ url_for('static', path='/dashboard.js') }}" defer></script>
 </body>
 </html>

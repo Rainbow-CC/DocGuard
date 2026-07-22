@@ -9,5 +9,6 @@ dist/
 data/
 logs/
 .idea/
-tests/manual-test.txt
-tests/test.json
+tools/manual-test.txt
+tools/test.json
+/review-tmp/

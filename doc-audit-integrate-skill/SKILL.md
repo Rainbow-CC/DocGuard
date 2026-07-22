@@ -15,6 +15,7 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 - `DOCGUARD_TASK_ID`、`DOCGUARD_ATTEMPT_ID`：本次交付身份。
 - `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含任务身份、文档引用、Profile 快照和提示词版本。
 - `DOCGUARD_RESULT_FILE`：唯一允许交付的最终文件，固定以 `findings.json` 结尾。
+- `DOCGUARD_EVIDENCE_DIR`：应用提供的证据包交付目录。必须在提交 findings 前写入 `audit-evidence.json` 和渲染图片；不得写入其他目录。
 
 `DOCGUARD_RESULT_FILE` 的父目录由应用预先创建，并只授予本 attempt 写权限。输入 DOCX、manifest、审计包和图件必须只读。禁止写入 `$HOME`、其他任务目录或任意未声明目录。
 
@@ -84,21 +85,31 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 
    每个问题只能在最终 `findings` 数组中出现一次。相同根因的图文问题必须合并，使用稳定且可解释的 `root_cause_key`。中间审核记录保存到 `$WORK/reviews/`。
 
+   构造 `evidence_refs` 时，逐项回查 `$WORK/audit-evidence.json`，而不是从审核记录或记忆中重写证据：
+
+   - 一个引用只能对应一个证据项。标题和正文位于不同 block 时分别引用，禁止合并为一个 `quote`。
+   - 文本和表格 `quote` 必须逐字复制对应证据项中的连续原文；禁止改写、概括、拼接不连续行或使用 `...` / `……` 代替省略内容。
+   - ID 前缀必须与证据类型一致：表格使用 `table:<block_index>`，其他文本块使用 `block:<block_index>`，图片使用 `image:<image_id>`。
+
 4. 交付结构化 findings。
 
-   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile 与提示词版本；不得伪造或猜测它们。`evidence_ids` 必须引用本次 Agent 自行生成的审计包证据。先生成临时文件，校验通过后才在同一文件系统原子交付：
+   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile 与提示词版本；不得伪造或猜测它们。必须先将可展示的审计包交付给应用：`audit-evidence.json` 写入 `$DOCGUARD_EVIDENCE_DIR`，并将 `$WORK/extracted/rendered/` 原样复制为 `$DOCGUARD_EVIDENCE_DIR/rendered/`。`evidence_refs` 只能引用其中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
 
    ```bash
    PARTIAL_FILE="$RESULT_DIR/findings.partial.json"
+   mkdir -p "$DOCGUARD_EVIDENCE_DIR"
+   cp "$WORK/audit-evidence.json" "$DOCGUARD_EVIDENCE_DIR/audit-evidence.json"
+   cp -a "$WORK/extracted/rendered" "$DOCGUARD_EVIDENCE_DIR/rendered"
    # 将完整 docguard-agent-result-v1 JSON 写入 "$PARTIAL_FILE"。
    python3 "$BASE/scripts/validate_findings.py" \
      --manifest "$DOCGUARD_AUDIT_MANIFEST" \
+     --evidence "$DOCGUARD_EVIDENCE_DIR/audit-evidence.json" \
      --input "$PARTIAL_FILE"
    mv "$PARTIAL_FILE" "$DOCGUARD_RESULT_FILE"
    test -s "$DOCGUARD_RESULT_FILE"
    ```
 
-   禁止直接写 `findings.json`，禁止交付半写入文件，禁止以聊天答复、Markdown、JSON 片段或截图替代该文件。完成后聊天最终答复只能简短确认 `findings.json` 已写入；不得在答复中重复 findings。
+   预检会核对证据 ID、类型、原文摘录、表格 selector 和图片 region。预检失败时必须修改 `$PARTIAL_FILE` 并重新运行，禁止绕过预检或继续执行 `mv`。禁止直接写 `findings.json`，禁止交付半写入文件，禁止以聊天答复、Markdown、JSON 片段或截图替代该文件。完成后聊天最终答复只能简短确认 `findings.json` 已写入；不得在答复中重复 findings。
 
 ## 资源
 

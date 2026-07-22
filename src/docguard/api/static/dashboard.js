@@ -11,12 +11,14 @@
     findings: document.querySelector('#findings-count'), backend: document.querySelector('#backend-name'), updated: document.querySelector('#updated-at'),
     report: document.querySelector('#report-link'), refresh: document.querySelector('#refresh-label'), card: document.querySelector('#task-card'),
     panel: document.querySelector('#findings-panel'), list: document.querySelector('#findings-list'), descriptionPanel: document.querySelector('#findings-description'),
-    taskList: document.querySelector('#task-list')
+    taskList: document.querySelector('#task-list'), evidenceDrawer: document.querySelector('#evidence-drawer'), evidenceTitle: document.querySelector('#evidence-title'),
+    evidenceContent: document.querySelector('#evidence-content'), evidenceClose: document.querySelector('#evidence-close'), evidenceBackdrop: document.querySelector('#evidence-backdrop')
   };
   let selectedFile = null;
   let selectedTaskId = null;
   let tasks = [];
   let poller = null;
+  const evidenceCache = new Map();
 
   const backendLabels = { stub: 'STANDARD', openclaw: 'OPENCLAW', langchain: 'LANGCHAIN' };
   const terminalStates = new Set(['completed', 'failed', 'cancelled']);
@@ -55,9 +57,9 @@
     elements.backend.textContent = backendLabels[task.agent_backend] || String(task.agent_backend || '—').toUpperCase(); elements.updated.textContent = formatTime(task.updated_at);
     if (task.report_markdown) { elements.report.href = `/api/v1/tasks/${task.task_id}/report.md`; elements.report.classList.remove('disabled'); elements.report.removeAttribute('aria-disabled'); }
     else { elements.report.href = '#'; elements.report.classList.add('disabled'); elements.report.setAttribute('aria-disabled', 'true'); }
-    if (task.findings?.length) renderFindings(task.findings); else elements.panel.hidden = true;
+    if (task.findings?.length) renderFindings(task, task.findings); else elements.panel.hidden = true;
   }
-  function renderFindings(findings) {
+  function renderFindings(task, findings) {
     elements.panel.hidden = false; elements.descriptionPanel.textContent = `${findings.length} 项已识别风险`;
     elements.list.replaceChildren(...findings.slice(0, 5).map((finding) => {
       const row = document.createElement('div'); row.className = 'finding-row';
@@ -65,9 +67,41 @@
       const title = document.createElement('strong'); title.textContent = finding.title || '未命名发现';
       const description = document.createElement('p'); description.textContent = finding.problem_description || finding.claim || '—';
       const dimension = document.createElement('small'); dimension.textContent = finding.review_dimension || finding.category || 'TECHNICAL AUDIT';
-      row.append(severity, title, description, dimension); return row;
+      const view = document.createElement('button'); view.type = 'button'; view.className = 'evidence-button';
+      const refs = finding.evidence_refs?.length || finding.evidence_ids?.length || 0; view.textContent = `查看证据 ${refs}`;
+      view.addEventListener('click', () => openEvidence(task, finding));
+      row.append(severity, title, description, dimension, view); return row;
     }));
   }
+  function closeEvidence() { elements.evidenceDrawer.hidden = true; elements.evidenceBackdrop.hidden = true; elements.evidenceDrawer.setAttribute('aria-hidden', 'true'); }
+  function legacyRef(value) {
+    const text = String(value || '');
+    const table = text.match(/txt_block(\d+)_table\1/); if (table) return { evidence_id:`table:${table[1]}`, role:'primary', quote:'', explanation:'' };
+    const block = text.match(/txt_(?:block)?(\d+)/); if (block) return { evidence_id:`block:${block[1]}`, role:'primary', quote:'', explanation:'' };
+    const image = text.match(/img_block\d+_image_(.+)/); if (image) return { evidence_id:`image:image-${image[1]}`, role:'primary', quote:'', explanation:'' };
+    return null;
+  }
+  async function openEvidence(task, finding) {
+    elements.evidenceTitle.textContent = finding.title || '证据复核'; elements.evidenceContent.replaceChildren(); elements.evidenceDrawer.hidden = false; elements.evidenceBackdrop.hidden = false; elements.evidenceDrawer.setAttribute('aria-hidden', 'false');
+    const loading = document.createElement('p'); loading.className = 'evidence-status'; loading.textContent = '正在加载可复核证据…'; elements.evidenceContent.append(loading);
+    try {
+      let evidence = evidenceCache.get(task.task_id);
+      if (!evidence) { const response = await fetch(`/api/v1/tasks/${task.task_id}/evidence`); if (!response.ok) throw new Error((await response.json()).detail || '证据包不可用'); evidence = await response.json(); evidenceCache.set(task.task_id, evidence); }
+      elements.evidenceContent.replaceChildren(); const refs = finding.evidence_refs?.length ? finding.evidence_refs : (finding.evidence_ids || []).map(legacyRef).filter(Boolean);
+      if (!refs.length) throw new Error('该 Finding 没有可展示的证据引用'); refs.forEach((ref, index) => renderEvidenceRef(evidence, ref, index));
+    } catch (error) { elements.evidenceContent.replaceChildren(); const status = document.createElement('p'); status.className = 'evidence-status error'; status.textContent = error.message || '证据加载失败'; elements.evidenceContent.append(status); }
+  }
+  function chapterForBlock(evidence, block) { const chapter = (evidence.chapters || []).find((item) => item.id === block.chapter_id); return chapter ? `第 ${chapter.chapter_number} 章 · ${chapter.title}` : '未归属章节'; }
+  function appendEvidenceNote(card, ref) { if (ref.quote) { const quote = document.createElement('blockquote'); quote.textContent = ref.quote; card.append(quote); } if (ref.explanation) { const note = document.createElement('p'); note.className = 'evidence-explanation'; note.textContent = ref.explanation; card.append(note); } }
+  function renderEvidenceRef(evidence, ref, index) {
+    const card = document.createElement('article'); card.className = 'evidence-card'; const label = document.createElement('small'); label.textContent = `${ref.role === 'supporting' ? '支撑证据' : '主要证据'} ${index + 1} · ${ref.evidence_id}`; card.append(label);
+    const image = (evidence.candidate_images || []).find((item) => `image:${item.image_id}` === ref.evidence_id);
+    if (image) { const meta = document.createElement('p'); meta.className = 'evidence-location'; meta.textContent = image.chapter_number ? `第 ${image.chapter_number} 章 · ${image.chapter_title || ''}` : '未归属章节'; card.append(meta); const figure = document.createElement('figure'); const img = document.createElement('img'); img.src = image.asset_url; img.alt = ref.quote || image.image_id; figure.append(img); if (ref.region) { const marker = document.createElement('span'); marker.className = 'evidence-region'; Object.assign(marker.style, { left:`${ref.region.x * 100}%`, top:`${ref.region.y * 100}%`, width:`${ref.region.width * 100}%`, height:`${ref.region.height * 100}%` }); figure.append(marker); } card.append(figure); appendEvidenceNote(card, ref); elements.evidenceContent.append(card); return; }
+    const block = (evidence.blocks || []).find((item) => `${item.type === 'table' ? 'table' : 'block'}:${item.block_index}` === ref.evidence_id);
+    if (!block) { const unavailable = document.createElement('p'); unavailable.className = 'evidence-status error'; unavailable.textContent = '该引用未在证据包中找到。'; card.append(unavailable); elements.evidenceContent.append(card); return; }
+    const meta = document.createElement('p'); meta.className = 'evidence-location'; meta.textContent = `${chapterForBlock(evidence, block)} · ${ref.evidence_id}`; card.append(meta); if (block.type === 'table') card.append(renderTable(block, ref.selector)); else { const text = document.createElement('pre'); text.textContent = block.text || '（空段落）'; card.append(text); } appendEvidenceNote(card, ref); elements.evidenceContent.append(card);
+  }
+  function renderTable(block, selector) { const table = document.createElement('table'); table.className = 'evidence-table'; const rows = block.rows || []; const headers = rows[0] || []; rows.forEach((cells, rowIndex) => { const row = document.createElement('tr'); const match = rowIndex > 0 && selector?.row_match && Object.entries(selector.row_match).every(([key, value]) => cells[headers.indexOf(key)] === value); if (match) row.className = 'evidence-hit'; cells.forEach((value, cellIndex) => { const cell = document.createElement(rowIndex === 0 ? 'th' : 'td'); cell.textContent = value; if (match && selector?.columns?.includes(headers[cellIndex])) cell.className = 'evidence-cell-hit'; row.append(cell); }); table.append(row); }); return table; }
   function updatePolling() {
     const active = tasks.some((task) => !terminalStates.has(task.status));
     if (active && !poller) poller = setInterval(() => refreshTasks().catch(() => {}), 2000);
@@ -99,5 +133,7 @@
     } catch (error) { setMessage(error.message || '请求未能完成，请稍后重试。', 'error'); }
     finally { button.disabled = false; button.querySelector('span').textContent = '开始审核'; }
   });
+  elements.evidenceClose.addEventListener('click', closeEvidence); elements.evidenceBackdrop.addEventListener('click', closeEvidence);
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeEvidence(); });
   refreshTasks().catch((error) => { elements.refresh.textContent = '任务列表不可用'; setMessage(error.message, 'error'); });
 })();

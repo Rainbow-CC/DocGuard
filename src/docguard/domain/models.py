@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 def _server_now() -> datetime:
@@ -77,6 +77,39 @@ class ReviewDimension(StrEnum):
     CONSISTENCY_READABILITY = "一致性与可读性"
 
 
+class EvidenceSelector(BaseModel):
+    """Optional, deterministic refinement inside a block-level evidence item."""
+
+    row_match: dict[str, str] = Field(default_factory=dict)
+    columns: list[str] = Field(default_factory=list)
+
+
+class ImageRegion(BaseModel):
+    """A normalized rectangle over an evidence image, when visual extraction is certain."""
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+    @model_validator(mode="after")
+    def stays_inside_image(self) -> ImageRegion:
+        if self.x + self.width > 1 or self.y + self.height > 1:
+            raise ValueError("image region must stay within the image bounds")
+        return self
+
+
+class EvidenceRef(BaseModel):
+    """A user-reviewable reference to an item in the task evidence bundle."""
+
+    evidence_id: str = Field(min_length=1)
+    role: Literal["primary", "supporting"] = "primary"
+    quote: str = Field(min_length=1)
+    explanation: str = Field(min_length=1)
+    selector: EvidenceSelector | None = None
+    region: ImageRegion | None = None
+
+
 class Finding(BaseModel):
     """The JSON contract returned by an audit agent.
 
@@ -128,6 +161,7 @@ class Finding(BaseModel):
         description="可验证的完成状态",
     )
     evidence_ids: list[str] = Field(min_length=1)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     root_cause_key: str
     agent_backend: AgentBackend
 

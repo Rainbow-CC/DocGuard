@@ -26,7 +26,11 @@
 
 ## 证据与去重规则
 
-- `evidence_ids` 必须引用本次 Agent 从 `audit-evidence.json` 生成的证据 ID，并且至少一个；应用仅校验其非空与 Finding 结构，不重建或白名单校验审计包证据。
+- `evidence_ids` 保留为兼容字段，必须至少一个；新的展示和校验以 `evidence_refs` 为准。
+- 每项 `evidence_refs[].evidence_id` 必须严格使用 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`，并存在于本次 `audit-evidence.json`。前缀必须匹配证据类型；例如 `block_index=79` 的表格只能引用为 `table:79`，不能写成 `block:79`。
+- 文本/表格 `quote` 必须从该 `evidence_id` 对应内容中逐字复制一段连续原文。禁止跨 block 合并标题与正文，禁止拼接不连续表格行，禁止改写标点或使用 `...` / `……` 表示省略。需要多个位置共同支持结论时，拆成多个 `evidence_refs`。
+- 表格内容按单元格使用 ` | `、按行使用换行连接后校验；优先引用一个完整单元格或一行连续内容。图片 `quote` 描述可见文字或元素。`explanation` 说明该证据如何支持本 Finding。
+- 表格可使用 `selector: {"row_match": {"列名": "精确单元格值"}, "columns": ["需高亮列"]}`；图片只有视觉事实足够确定时才可使用归一化 `region: {"x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0}`。
 - `text_evidence` 每项使用 `第<章节号>章（<章节标题>），block:<索引>：<证据内容>` 或 `table:<索引>`；无法归属章节时明确写“未归属章节”。
 - 图文问题的 `image_evidence` 使用 `第<章节号>章（<章节标题>），image:<图片ID>：<证据内容>`；纯文本问题必须为 `['不适用（纯文本审核）']`。
 - 多张图或多处文本引起的同一根因必须合并为一个 finding，并在证据中列出全部相关位置。
@@ -64,7 +68,15 @@
       "revision_suggestion": "<可执行动作>",
       "revision_location": "第 1 章",
       "completion_criteria": "<可验证状态>",
-      "evidence_ids": ["txt_001"],
+      "evidence_ids": ["block:1"],
+      "evidence_refs": [
+        {
+          "evidence_id": "block:1",
+          "role": "primary",
+          "quote": "<原文精确摘录>",
+          "explanation": "<该摘录如何支持结论>"
+        }
+      ],
       "root_cause_key": "<稳定、可解释的根因键>",
       "agent_backend": "openclaw"
     }

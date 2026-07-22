@@ -4,7 +4,7 @@ from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -107,6 +107,37 @@ def get_task(task_id: str):
         return store.get(task_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc
+
+
+@app.get("/api/v1/tasks/{task_id}/evidence")
+def get_task_evidence(task_id: str):
+    """Return the safe evidence bundle projection used by the review drawer."""
+    try:
+        task = store.get(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    try:
+        evidence = service.artifacts.evidence_presentation(task)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if evidence is None:
+        raise HTTPException(status_code=404, detail="Evidence bundle is not available")
+    return evidence
+
+
+@app.get("/api/v1/tasks/{task_id}/evidence/images/{image_id}")
+def get_task_evidence_image(task_id: str, image_id: str) -> FileResponse:
+    try:
+        task = store.get(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    try:
+        image_path = service.artifacts.evidence_image_path(task, image_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if image_path is None:
+        raise HTTPException(status_code=404, detail="Evidence image is not available")
+    return FileResponse(image_path, media_type="image/png")
 
 
 @app.get("/api/v1/tasks/{task_id}/report.md")

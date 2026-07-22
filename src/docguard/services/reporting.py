@@ -23,7 +23,7 @@ def render_markdown(profile: AuditProfile, findings: list[Finding]) -> str:
                 f"- 编号：`{finding.finding_id}`",
                 f"- 严重级别：{finding.severity}",
                 f"- 规则：`{finding.rule_id}`",
-                f"- 证据：{', '.join(finding.evidence_ids)}",
+                f"- 证据：{', '.join(ref.evidence_id for ref in finding.evidence_refs) or ', '.join(finding.evidence_ids)}",
                 f"- 判断：{finding.claim}",
                 f"- 建议：{finding.recommendation}",
                 f"- 完成标准：{finding.acceptance_criteria}",
