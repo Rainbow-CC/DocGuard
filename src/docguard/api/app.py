@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
@@ -118,12 +119,20 @@ def download_task_report(task_id: str) -> Response:
     if task.report_markdown is None:
         raise HTTPException(status_code=409, detail="Report is not available yet")
 
-    filename = f"docguard-report-{task.task_id}.md"
+    source_filename = task.document.filename.replace("\\", "/").rsplit("/", maxsplit=1)[-1]
+    document_stem = Path(source_filename).stem or "document"
+    filename = f"docguard-report-{document_stem}-{task.task_id}.md"
+    fallback_filename = f"docguard-report-{task.task_id}.md"
     logger.info("task.report.downloaded task_id=%s filename=%s", task.task_id, filename)
     return Response(
         content=task.report_markdown,
         media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{fallback_filename}"; '
+                f"filename*=UTF-8''{quote(filename, safe='')}"
+            )
+        },
     )
 
 

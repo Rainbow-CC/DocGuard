@@ -29,7 +29,8 @@ def test_report_download_returns_markdown_attachment() -> None:
     assert response.text == "# 技术文档审核报告\n"
     assert response.headers["content-type"].startswith("text/markdown")
     assert response.headers["content-disposition"] == (
-        f'attachment; filename="docguard-report-{task.task_id}.md"'
+        f'attachment; filename="docguard-report-{task.task_id}.md"; '
+        f"filename*=UTF-8''docguard-report-sample-{task.task_id}.md"
     )
 
 
