@@ -56,6 +56,37 @@ OpenClaw Agent 负责提取 DOCX、建立审计包并生成可定位证据。新
 
 建议生产环境为每个任务冻结：输入文件哈希、Profile 快照、提示词版本、模型引用、审计包 manifest、运行 ID 和原始模型响应 URI。
 
+### Artifact 交付路径
+
+OpenClaw attempt 使用应用与 Agent 共享的结果根目录。应用侧通过
+`DOCGUARD_RESULT_WRITE_ROOT` 配置该目录（默认：
+`\\wsl.localhost\\Ubuntu\\home\\ubuntu\\docguard-results`），Agent 侧通过
+`DOCGUARD_RESULT_AGENT_ROOT` 使用对应的 WSL 路径（默认：
+`/home/ubuntu/docguard-results`）。每次任务和 attempt 的目录结构固定如下：
+
+```text
+<result-root>/
+└── <task_id>/
+    └── <attempt_id>/
+        ├── input-manifest.json
+        ├── findings.json
+        └── evidence/
+            ├── audit-evidence.json
+            └── rendered/
+                └── *.png
+```
+
+其中，`input-manifest.json` 由应用创建，`audit-evidence.json` 和 `rendered/` 由
+OpenClaw skill 交付，`findings.json` 是 Agent 最终交付的结构化结果。Agent 必须
+先写入同目录临时文件并校验成功，再通过原子重命名交付 `findings.json`；应用检测到
+`findings.json` 后，会读取同一 attempt 下的 `evidence/audit-evidence.json`，校验
+`evidence_refs` 是否引用真实证据，最后合并 Finding 并生成报告。
+
+证据引用只能使用当前审计包中的 `block:<block_index>`、`table:<block_index>` 或
+`image:<image_id>`。图片文件必须位于该 attempt 的 `evidence/rendered/` 目录内；应用
+不会把内部文件路径直接暴露给浏览器，而是通过证据接口生成受控图片 URL。完整的交付
+约束见 [`doc-audit-integrate-skill/SKILL.md`](doc-audit-integrate-skill/SKILL.md)。
+
 ## 快速开始
 
 需安装 [uv](https://docs.astral.sh/uv/) 和 Python 3.12+。

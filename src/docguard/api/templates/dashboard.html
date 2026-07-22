@@ -56,11 +56,16 @@
       <article id="task-card" class="task-card task-empty" hidden>
         <div class="task-primary"><div id="task-status" class="status-pill neutral">未开始</div><div><h3 id="task-name">尚未提交审核文件</h3><p id="task-id">提交 DOCX 后将在此跟踪审核进度</p></div></div>
         <div class="task-metrics"><div><span>发现项</span><strong id="findings-count">—</strong></div><div><span>执行器</span><strong id="backend-name">—</strong></div><div><span>更新时间</span><strong id="updated-at">—</strong></div></div>
-        <div class="task-actions"><a id="report-link" class="report-link disabled" href="#" aria-disabled="true">获取报告 <span>↓</span></a></div>
+        <div class="task-actions"><button id="details-button" class="details-button" type="button" hidden>查看详情 <span>↗</span></button><a id="report-link" class="report-link disabled" href="#" aria-disabled="true">获取报告 <span>↓</span></a></div>
       </article>
+      <section id="findings-summary" class="findings-summary" aria-label="风险发现概览" hidden>
+        <div class="findings-header"><span>风险发现概览</span><small id="findings-summary-description"></small></div>
+        <div id="findings-summary-metrics" class="findings-summary-metrics"></div>
+      </section>
       <div id="findings-panel" class="findings-panel" hidden>
-        <div class="findings-header"><span>风险发现摘要</span><small id="findings-description"></small></div>
+        <div class="findings-header"><span>全部风险发现</span><small id="findings-description"></small></div>
         <div id="findings-list" class="findings-list"></div>
+        <nav id="findings-pagination" class="findings-pagination" aria-label="问题分页"></nav>
       </div>
     </section>
 

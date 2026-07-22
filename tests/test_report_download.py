@@ -2,9 +2,10 @@ from hashlib import sha256
 
 from fastapi.testclient import TestClient
 
-from docguard.api.app import app, store
+from docguard.api import app as api
 from docguard.domain.models import AgentBackend, AuditTask, InputDocument
 from docguard.services.profiles import ProfileRegistry
+from docguard.services.store import InMemoryTaskStore
 
 
 def _task(report_markdown: str | None) -> AuditTask:
@@ -20,10 +21,12 @@ def _task(report_markdown: str | None) -> AuditTask:
     )
 
 
-def test_report_download_returns_markdown_attachment() -> None:
+def test_report_download_returns_markdown_attachment(monkeypatch) -> None:
+    store = InMemoryTaskStore()
+    monkeypatch.setattr(api, "store", store)
     task = store.create(_task("# 技术文档审核报告\n"))
 
-    response = TestClient(app).get(f"/api/v1/tasks/{task.task_id}/report.md")
+    response = TestClient(api.app).get(f"/api/v1/tasks/{task.task_id}/report.md")
 
     assert response.status_code == 200
     assert response.text == "# 技术文档审核报告\n"
@@ -34,10 +37,12 @@ def test_report_download_returns_markdown_attachment() -> None:
     )
 
 
-def test_report_download_rejects_task_without_report() -> None:
+def test_report_download_rejects_task_without_report(monkeypatch) -> None:
+    store = InMemoryTaskStore()
+    monkeypatch.setattr(api, "store", store)
     task = store.create(_task(None))
 
-    response = TestClient(app).get(f"/api/v1/tasks/{task.task_id}/report.md")
+    response = TestClient(api.app).get(f"/api/v1/tasks/{task.task_id}/report.md")
 
     assert response.status_code == 409
     assert response.json() == {"detail": "Report is not available yet"}

@@ -10,12 +10,15 @@
     status: document.querySelector('#task-status'), name: document.querySelector('#task-name'), id: document.querySelector('#task-id'),
     findings: document.querySelector('#findings-count'), backend: document.querySelector('#backend-name'), updated: document.querySelector('#updated-at'),
     report: document.querySelector('#report-link'), refresh: document.querySelector('#refresh-label'), card: document.querySelector('#task-card'),
-    panel: document.querySelector('#findings-panel'), list: document.querySelector('#findings-list'), descriptionPanel: document.querySelector('#findings-description'),
+    panel: document.querySelector('#findings-panel'), list: document.querySelector('#findings-list'), descriptionPanel: document.querySelector('#findings-description'), pagination: document.querySelector('#findings-pagination'),
+    summary: document.querySelector('#findings-summary'), summaryDescription: document.querySelector('#findings-summary-description'), summaryMetrics: document.querySelector('#findings-summary-metrics'), details: document.querySelector('#details-button'),
     taskList: document.querySelector('#task-list'), evidenceDrawer: document.querySelector('#evidence-drawer'), evidenceTitle: document.querySelector('#evidence-title'),
     evidenceContent: document.querySelector('#evidence-content'), evidenceClose: document.querySelector('#evidence-close'), evidenceBackdrop: document.querySelector('#evidence-backdrop')
   };
   let selectedFile = null;
   let selectedTaskId = null;
+  let detailTaskId = null;
+  let findingsPage = 1;
   let tasks = [];
   let poller = null;
   const evidenceCache = new Map();
@@ -23,6 +26,8 @@
   const backendLabels = { stub: 'STANDARD', openclaw: 'OPENCLAW', langchain: 'LANGCHAIN' };
   const terminalStates = new Set(['completed', 'failed', 'cancelled']);
   const statusLabels = { queued:'排队中', running:'审核中', collecting:'收集中', retrying:'重试中', completed:'已完成', failed:'失败', cancelled:'已取消' };
+  const severityOrder = ['重大', '一般', '优化', '观察'];
+  const findingsPerPage = 10;
 
   function setMessage(text = '', kind = '') { message.textContent = text; message.className = `form-message ${kind}`; }
   function setFile(file) {
@@ -39,7 +44,7 @@
     elements.taskList.replaceChildren(...tasks.map((task) => {
       const row = document.createElement('button'); row.type = 'button'; row.className = `task-row${task.task_id === selectedTaskId ? ' selected' : ''}`;
       row.setAttribute('aria-pressed', String(task.task_id === selectedTaskId));
-      row.addEventListener('click', () => { selectedTaskId = task.task_id; renderTaskList(); renderSelectedTask(); });
+      row.addEventListener('click', () => { selectedTaskId = task.task_id; detailTaskId = null; findingsPage = 1; renderTaskList(); renderSelectedTask(); });
       const status = document.createElement('span'); status.className = `status-pill ${task.status}`; status.textContent = statusLabel(task.status);
       const file = document.createElement('span'); file.className = 'task-file'; const name = document.createElement('strong'); name.textContent = task.document.filename; const id = document.createElement('small'); id.textContent = `TASK / ${task.task_id.slice(0, 8)}`; file.append(name, id);
       const backendMetric = document.createElement('span'); backendMetric.className = 'queue-metric'; backendMetric.innerHTML = `<span>执行器</span><strong>${backendLabels[task.agent_backend] || String(task.agent_backend).toUpperCase()}</strong>`;
@@ -51,17 +56,41 @@
   }
   function renderSelectedTask() {
     const task = tasks.find((item) => item.task_id === selectedTaskId);
-    if (!task) { elements.card.hidden = true; elements.panel.hidden = true; return; }
+    if (!task) { elements.card.hidden = true; elements.summary.hidden = true; elements.panel.hidden = true; return; }
+    const selectedRow = elements.taskList.querySelector('.task-row.selected');
+    if (selectedRow) selectedRow.after(elements.card, elements.summary, elements.panel);
     const status = task.status || 'queued'; elements.card.hidden = false; elements.card.classList.remove('task-empty'); elements.status.className = `status-pill ${status}`; elements.status.textContent = statusLabel(status);
     elements.name.textContent = task.document.filename; elements.id.textContent = `TASK / ${task.task_id}`; elements.findings.textContent = task.findings?.length ?? 0;
     elements.backend.textContent = backendLabels[task.agent_backend] || String(task.agent_backend || '—').toUpperCase(); elements.updated.textContent = formatTime(task.updated_at);
     if (task.report_markdown) { elements.report.href = `/api/v1/tasks/${task.task_id}/report.md`; elements.report.classList.remove('disabled'); elements.report.removeAttribute('aria-disabled'); }
     else { elements.report.href = '#'; elements.report.classList.add('disabled'); elements.report.setAttribute('aria-disabled', 'true'); }
-    if (task.findings?.length) renderFindings(task, task.findings); else elements.panel.hidden = true;
+    const completed = task.status === 'completed';
+    elements.details.hidden = !completed;
+    if (completed) renderFindingsSummary(task.findings || []); else elements.summary.hidden = true;
+    if (completed && detailTaskId === task.task_id) renderFindings(task, task.findings || []); else elements.panel.hidden = true;
+  }
+  function renderFindingsSummary(findings) {
+    elements.summary.hidden = false;
+    const counts = Object.fromEntries(severityOrder.map((severity) => [severity, 0]));
+    findings.forEach((finding) => { if (Object.hasOwn(counts, finding.severity)) counts[finding.severity] += 1; });
+    const highest = severityOrder.find((severity) => counts[severity]) || '无';
+    elements.summaryDescription.textContent = findings.length ? `最高风险：${highest}` : '未识别风险';
+    const metrics = [['问题总数', findings.length, 'total'], ...severityOrder.map((severity) => [severity, counts[severity], severity])];
+    elements.summaryMetrics.replaceChildren(...metrics.map(([label, value, kind]) => {
+      const metric = document.createElement('div'); metric.className = `summary-metric ${kind}`;
+      const title = document.createElement('span'); title.textContent = label;
+      const count = document.createElement('strong'); count.textContent = value;
+      metric.append(title, count); return metric;
+    }));
   }
   function renderFindings(task, findings) {
-    elements.panel.hidden = false; elements.descriptionPanel.textContent = `${findings.length} 项已识别风险`;
-    elements.list.replaceChildren(...findings.slice(0, 5).map((finding) => {
+    const sorted = [...findings].sort((left, right) => severityOrder.indexOf(left.severity) - severityOrder.indexOf(right.severity));
+    const pages = Math.max(1, Math.ceil(sorted.length / findingsPerPage));
+    findingsPage = Math.min(findingsPage, pages);
+    const first = (findingsPage - 1) * findingsPerPage;
+    const pageFindings = sorted.slice(first, first + findingsPerPage);
+    elements.panel.hidden = false; elements.descriptionPanel.textContent = sorted.length ? `按严重级别排序 · 第 ${findingsPage}/${pages} 页` : '未识别风险';
+    elements.list.replaceChildren(...pageFindings.map((finding) => {
       const row = document.createElement('div'); row.className = 'finding-row';
       const severity = document.createElement('span'); severity.className = `severity ${finding.severity}`; severity.textContent = finding.severity || '观察';
       const title = document.createElement('strong'); title.textContent = finding.title || '未命名发现';
@@ -72,6 +101,20 @@
       view.addEventListener('click', () => openEvidence(task, finding));
       row.append(severity, title, description, dimension, view); return row;
     }));
+    renderPagination(pages);
+  }
+  function renderPagination(pages) {
+    elements.pagination.replaceChildren();
+    if (pages <= 1) { elements.pagination.hidden = true; return; }
+    elements.pagination.hidden = false;
+    const addButton = (label, page, disabled = false, current = false) => {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.disabled = disabled; button.className = current ? 'current' : '';
+      button.setAttribute('aria-current', current ? 'page' : 'false');
+      button.addEventListener('click', () => { findingsPage = page; renderSelectedTask(); }); elements.pagination.append(button);
+    };
+    addButton('上一页', findingsPage - 1, findingsPage === 1);
+    for (let page = 1; page <= pages; page += 1) addButton(String(page), page, false, page === findingsPage);
+    addButton('下一页', findingsPage + 1, findingsPage === pages);
   }
   function closeEvidence() { elements.evidenceDrawer.hidden = true; elements.evidenceBackdrop.hidden = true; elements.evidenceDrawer.setAttribute('aria-hidden', 'true'); }
   function legacyRef(value) {
@@ -134,6 +177,7 @@
     finally { button.disabled = false; button.querySelector('span').textContent = '开始审核'; }
   });
   elements.evidenceClose.addEventListener('click', closeEvidence); elements.evidenceBackdrop.addEventListener('click', closeEvidence);
+  elements.details.addEventListener('click', () => { detailTaskId = selectedTaskId; findingsPage = 1; renderSelectedTask(); });
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeEvidence(); });
   refreshTasks().catch((error) => { elements.refresh.textContent = '任务列表不可用'; setMessage(error.message, 'error'); });
 })();

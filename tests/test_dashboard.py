@@ -10,6 +10,9 @@ def test_dashboard_and_assets_are_served() -> None:
 
     assert page.status_code == 200
     assert "DOCGUARD" in page.text
+    assert 'id="details-button"' in page.text
+    assert 'id="findings-summary"' in page.text
+    assert 'id="findings-pagination"' in page.text
     assert client.get("/static/dashboard.css").status_code == 200
     assert client.get("/static/dashboard.js").status_code == 200
 
