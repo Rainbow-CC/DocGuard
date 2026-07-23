@@ -5,6 +5,7 @@
   const button = document.querySelector('#submit-button');
   const message = document.querySelector('#form-message');
   const backend = document.querySelector('#backend');
+  const taskFilenameFilter = document.querySelector('#task-filename-filter');
   const elements = {
     title: document.querySelector('#drop-title'), description: document.querySelector('#drop-description'),
     status: document.querySelector('#task-status'), name: document.querySelector('#task-name'), id: document.querySelector('#task-id'),
@@ -20,6 +21,7 @@
   let detailTaskId = null;
   let findingsPage = 1;
   let tasks = [];
+  let filenameQuery = '';
   let poller = null;
   const evidenceCache = new Map();
 
@@ -39,9 +41,16 @@
   function agentId() { return `web-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`; }
   function formatTime(value) { try { return new Intl.DateTimeFormat('zh-CN', { hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(new Date(value)); } catch { return '—'; } }
   function statusLabel(status) { return statusLabels[status] || status; }
+  function normalizedFilename(value) { return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, ''); }
+  function visibleTasks() {
+    const query = normalizedFilename(filenameQuery);
+    return query ? tasks.filter((task) => normalizedFilename(task.document?.filename).includes(query)) : tasks;
+  }
 
   function renderTaskList() {
-    elements.taskList.replaceChildren(...tasks.map((task) => {
+    const filteredTasks = visibleTasks();
+    if (selectedTaskId && !filteredTasks.some((task) => task.task_id === selectedTaskId)) selectedTaskId = null;
+    const rows = filteredTasks.map((task) => {
       const row = document.createElement('button'); row.type = 'button'; row.className = `task-row${task.task_id === selectedTaskId ? ' selected' : ''}`;
       row.setAttribute('aria-pressed', String(task.task_id === selectedTaskId));
       row.addEventListener('click', () => { selectedTaskId = task.task_id; detailTaskId = null; findingsPage = 1; renderTaskList(); renderSelectedTask(); });
@@ -52,7 +61,11 @@
       const updated = document.createElement('time'); updated.dateTime = task.updated_at; updated.textContent = formatTime(task.updated_at);
       const open = document.createElement('span'); open.className = 'queue-open'; open.textContent = task.task_id === selectedTaskId ? '已展开 ↘' : '查看 ↗';
       row.append(status, file, backendMetric, findingMetric, updated, open); return row;
-    }));
+    });
+    if (filenameQuery.trim() && rows.length === 0) {
+      const empty = document.createElement('p'); empty.className = 'task-list-empty'; empty.textContent = '未找到名称匹配的任务。'; rows.push(empty);
+    }
+    elements.taskList.replaceChildren(...rows);
   }
   function renderSelectedTask() {
     const task = tasks.find((item) => item.task_id === selectedTaskId);
@@ -159,6 +172,7 @@
 
   dropZone.addEventListener('click', () => fileInput.click()); dropZone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); } });
   fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+  taskFilenameFilter.addEventListener('input', () => { filenameQuery = taskFilenameFilter.value; renderTaskList(); renderSelectedTask(); });
   ['dragenter','dragover'].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
   ['dragleave','drop'].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));
   dropZone.addEventListener('drop', (event) => setFile(event.dataTransfer.files[0]));

@@ -27,6 +27,7 @@ app.state.upload_storage = UploadStorage.from_environment()
 _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
+_DASHBOARD_ASSET_VERSION = "task-filter-v2"
 
 
 def get_upload_storage(request: Request) -> UploadStorage:
@@ -36,7 +37,11 @@ def get_upload_storage(request: Request) -> UploadStorage:
 @app.get("/", include_in_schema=False)
 def dashboard(request: Request):
     """Serve the operator console while keeping the API usable independently."""
-    return templates.TemplateResponse(request=request, name="dashboard.html")
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={"dashboard_asset_version": _DASHBOARD_ASSET_VERSION},
+    )
 
 
 @app.get("/healthz")

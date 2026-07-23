@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0a1020">
-  <title>DocGuard · 审核控制台</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/dashboard.css') }}">
+  <meta name="theme-color" content="#f4f7f5">
+  <title>DocGuard</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/dashboard.css') }}?v={{ dashboard_asset_version }}">
 </head>
 <body>
   <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
@@ -15,7 +15,7 @@
         <span class="brand-mark"><i></i><i></i><i></i></span>
         <span>DOC<span>GUARD</span></span>
       </a>
-      <div class="topbar-meta"><span class="live-dot"></span>审核控制台 <span class="divider"></span> CN · PROD</div>
+      <div class="topbar-meta"><span class="live-dot"></span>审核控制台 <span class="divider"></span> TEST </div>
     </header>
 
     <section class="hero">
@@ -51,7 +51,7 @@
     </section>
 
     <section class="monitor" aria-label="审核任务状态">
-      <div class="section-heading"><span class="section-index">02</span><div><p>LIVE MONITOR</p><h2>任务队列</h2></div><span class="rule"></span><span id="refresh-label" class="refresh-label">加载任务中</span></div>
+      <div class="section-heading"><span class="section-index">02</span><div><p>LIVE MONITOR</p><h2>任务队列</h2></div><span class="rule"></span><label class="task-filter"><span class="sr-only">按原文件名筛选任务</span><input id="task-filename-filter" type="search" placeholder="按原文件名筛选" autocomplete="off"></label><span id="refresh-label" class="refresh-label">加载任务中</span></div>
       <div id="task-list" class="task-list" aria-live="polite"></div>
       <article id="task-card" class="task-card task-empty" hidden>
         <div class="task-primary"><div id="task-status" class="status-pill neutral">未开始</div><div><h3 id="task-name">尚未提交审核文件</h3><p id="task-id">提交 DOCX 后将在此跟踪审核进度</p></div></div>
@@ -69,11 +69,11 @@
       </div>
     </section>
 
-    <section class="principles">
-      <div><span>01</span><strong>证据可定位</strong><p>每项判断均需关联原始证据。</p></div>
-      <div><span>02</span><strong>结果可复核</strong><p>结构化 Findings 由程序统一校验。</p></div>
-      <div><span>03</span><strong>报告可交付</strong><p>一键导出标准化审核报告。</p></div>
-    </section>
+<!--    <section class="principles">-->
+<!--      <div><span>01</span><strong>证据可定位</strong><p>每项判断均需关联原始证据。</p></div>-->
+<!--      <div><span>02</span><strong>结果可复核</strong><p>结构化 Findings 由程序统一校验。</p></div>-->
+<!--      <div><span>03</span><strong>报告可交付</strong><p>一键导出标准化审核报告。</p></div>-->
+<!--    </section>-->
     <footer><span>DOCGUARD / CONTROL ROOM</span><span>SECURED DOCUMENT INTELLIGENCE</span></footer>
   </main>
   <aside id="evidence-drawer" class="evidence-drawer" aria-label="证据复核" aria-hidden="true" hidden>
@@ -81,6 +81,6 @@
     <div id="evidence-content" class="evidence-content"></div>
   </aside>
   <div id="evidence-backdrop" class="evidence-backdrop" hidden></div>
-  <script src="{{ url_for('static', path='/dashboard.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/dashboard.js') }}?v={{ dashboard_asset_version }}" defer></script>
 </body>
 </html>
