@@ -12,7 +12,7 @@
     findings: document.querySelector('#findings-count'), backend: document.querySelector('#backend-name'), updated: document.querySelector('#updated-at'),
     report: document.querySelector('#report-link'), refresh: document.querySelector('#refresh-label'), card: document.querySelector('#task-card'),
     panel: document.querySelector('#findings-panel'), list: document.querySelector('#findings-list'), descriptionPanel: document.querySelector('#findings-description'), pagination: document.querySelector('#findings-pagination'),
-    summary: document.querySelector('#findings-summary'), summaryDescription: document.querySelector('#findings-summary-description'), summaryMetrics: document.querySelector('#findings-summary-metrics'), details: document.querySelector('#details-button'),
+    summary: document.querySelector('#findings-summary'), summaryDescription: document.querySelector('#findings-summary-description'), summaryMetrics: document.querySelector('#findings-summary-metrics'), details: document.querySelector('#details-button'), continue: document.querySelector('#continue-button'),
     taskList: document.querySelector('#task-list'), evidenceDrawer: document.querySelector('#evidence-drawer'), evidenceTitle: document.querySelector('#evidence-title'),
     evidenceContent: document.querySelector('#evidence-content'), evidenceClose: document.querySelector('#evidence-close'), evidenceBackdrop: document.querySelector('#evidence-backdrop')
   };
@@ -79,6 +79,7 @@
     else { elements.report.href = '#'; elements.report.classList.add('disabled'); elements.report.setAttribute('aria-disabled', 'true'); }
     const completed = task.status === 'completed';
     elements.details.hidden = !completed;
+    elements.continue.hidden = !(task.status === 'collecting' && task.agent_backend === 'openclaw');
     if (completed) renderFindingsSummary(task.findings || []); else elements.summary.hidden = true;
     if (completed && detailTaskId === task.task_id) renderFindings(task, task.findings || []); else elements.panel.hidden = true;
   }
@@ -192,6 +193,16 @@
   });
   elements.evidenceClose.addEventListener('click', closeEvidence); elements.evidenceBackdrop.addEventListener('click', closeEvidence);
   elements.details.addEventListener('click', () => { detailTaskId = selectedTaskId; findingsPage = 1; renderSelectedTask(); });
+  elements.continue.addEventListener('click', async () => {
+    const task = tasks.find((item) => item.task_id === selectedTaskId); if (!task) return;
+    elements.continue.disabled = true; elements.continue.querySelector('span').textContent = '…';
+    try {
+      const response = await fetch(`/api/v1/tasks/${task.task_id}/continue`, { method:'POST' });
+      if (!response.ok) throw new Error((await response.json()).detail || '继续任务失败');
+      setMessage('已在原会话中发送“继续”，正在重新收集 SSE 消息。', 'success'); await refreshTasks();
+    } catch (error) { setMessage(error.message || '继续任务失败，请稍后重试。', 'error'); }
+    finally { elements.continue.disabled = false; elements.continue.querySelector('span').textContent = '↻'; }
+  });
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeEvidence(); });
   refreshTasks().catch((error) => { elements.refresh.textContent = '任务列表不可用'; setMessage(error.message, 'error'); });
 })();

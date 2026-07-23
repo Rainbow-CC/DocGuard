@@ -128,6 +128,35 @@ class AuditTaskService:
                 reconciled.append(self.collect(task.task_id))
         return reconciled
 
+    def continue_collecting(self, task_id: str) -> AuditTask:
+        """Prompt a disconnected OpenClaw task to continue in its existing session."""
+        task = self.store.get(task_id)
+        if task.status is not TaskStatus.COLLECTING:
+            raise ValueError(f"Task {task_id} is not collecting")
+        if task.agent_backend is not AgentBackend.OPENCLAW:
+            raise ValueError(f"Task {task_id} does not use the OpenClaw backend")
+
+        attempt = self._attempt(task, None)
+        self._set_attempt_status(attempt, AttemptStatus.RUNNING, None)
+        self.store.update(task, status=TaskStatus.RUNNING, error=None)
+        logger.info("task.openclaw.continue_started task_id=%s attempt_id=%s", task_id, attempt.attempt_id)
+        try:
+            response_id = self.openclaw_gateway.continue_attempt(task, attempt)
+            if response_id:
+                attempt.gateway_response_id = response_id
+            self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
+        except GatewayExecutionError as exc:
+            # Keep the task actionable: another continuation may still reach the agent.
+            self._set_attempt_status(attempt, AttemptStatus.COLLECTING, str(exc))
+            logger.exception(
+                "task.openclaw.continue_error task_id=%s attempt_id=%s error=%s",
+                task_id,
+                attempt.attempt_id,
+                exc,
+            )
+        self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
+        return self.collect(task_id, attempt.attempt_id)
+
     def _run_openclaw(self, task: AuditTask) -> AuditTask:
         logger.info("task.openclaw.prepare_started task_id=%s", task.task_id)
         attempt = self.artifacts.prepare(task)
@@ -153,6 +182,8 @@ class AuditTaskService:
                 attempt.attempt_id,
                 exc,
             )
+        # Persist SSE metadata before reconciliation reloads the task from a durable store.
+        self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
         return self.collect(task.task_id, attempt.attempt_id)
 
     @staticmethod

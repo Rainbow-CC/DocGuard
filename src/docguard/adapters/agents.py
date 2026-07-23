@@ -26,6 +26,8 @@ class OpenClawAttemptGateway(Protocol):
 
     def execute_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None: ...
 
+    def continue_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None: ...
+
 
 class StubAgentGateway:
     """A deterministic local executor used until a real model adapter is configured."""
@@ -63,12 +65,28 @@ class OpenClawAgentGateway:
             )
             raise GatewayExecutionError("OPENCLAW_GATEWAY_URL and OPENCLAW_API_TOKEN must be configured")
 
-        request = {
+        return self._stream_attempt(task, attempt, self._prompt(task, attempt))
+
+    def continue_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None:
+        """Continue the task's existing Gateway conversation and collect its SSE."""
+        return self._stream_attempt(task, attempt, "继续", previous_response_id=attempt.gateway_response_id)
+
+    def _stream_attempt(
+        self,
+        task: AuditTask,
+        attempt: AuditAttempt,
+        input_text: str,
+        *,
+        previous_response_id: str | None = None,
+    ) -> str | None:
+        request: dict[str, object] = {
             "model": "openclaw/audit-runtime",
             "user": f"docguard:task:{task.task_id}",
             "stream": True,
-            "input": self._prompt(task, attempt),
+            "input": input_text,
         }
+        if previous_response_id:
+            request["previous_response_id"] = previous_response_id
         headers = {"Authorization": f"Bearer {self.api_token}"}
         response_id: str | None = None
         event_count = 0

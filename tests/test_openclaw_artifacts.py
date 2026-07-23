@@ -59,6 +59,25 @@ class DisconnectingGateway:
     def execute_attempt(self, task, attempt) -> str:
         raise GatewayExecutionError("OpenClaw transport failure: connection reset")
 
+    def continue_attempt(self, task, attempt) -> str:
+        assert attempt.gateway_response_id is None
+        raise GatewayExecutionError("OpenClaw transport failure: connection reset")
+
+
+class ContinuingGateway:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.continued = False
+
+    def execute_attempt(self, task, attempt) -> str:
+        raise GatewayExecutionError("OpenClaw transport failure: connection reset")
+
+    def continue_attempt(self, task, attempt) -> str:
+        self.continued = True
+        target = self.root / task.task_id / attempt.attempt_id / "findings.json"
+        target.write_text(json.dumps(_result(task, attempt), ensure_ascii=False), encoding="utf-8")
+        return "resp_continued"
+
 
 def test_openclaw_result_artifact_completes_task(tmp_path: Path) -> None:
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
@@ -114,3 +133,19 @@ def test_sse_disconnect_keeps_task_collecting_for_artifact_reconciliation(tmp_pa
 
     assert collecting.status is TaskStatus.COLLECTING
     assert collecting.attempts[0].error == "OpenClaw transport failure: connection reset"
+
+
+def test_collecting_task_can_continue_in_its_existing_attempt(tmp_path: Path) -> None:
+    artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
+    gateway = ContinuingGateway(tmp_path)
+    service = AuditTaskService(InMemoryTaskStore(), ProfileRegistry(), artifacts=artifacts, openclaw_gateway=gateway)
+    task = service.create(CreateTaskRequest(document=InputDocument(filename="sample.docx", content_sha256=sha256(b"sample").hexdigest(), source_uri="file:///docguard-inbox/reviewer/sample/source.docx"), agent_backend=AgentBackend.OPENCLAW))
+
+    collecting = service.run(task.task_id)
+    assert collecting.status is TaskStatus.COLLECTING
+    completed = service.continue_collecting(task.task_id)
+
+    assert gateway.continued is True
+    assert completed.status is TaskStatus.COMPLETED
+    assert len(completed.attempts) == 1
+    assert completed.attempts[0].gateway_response_id == "resp_continued"

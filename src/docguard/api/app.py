@@ -8,7 +8,13 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from docguard.domain.models import CreateTaskRequest, TaskCreatedResponse, UploadDocumentResponse
+from docguard.domain.models import (
+    AgentBackend,
+    CreateTaskRequest,
+    TaskCreatedResponse,
+    TaskStatus,
+    UploadDocumentResponse,
+)
 from docguard.logging_config import configure_logging
 from docguard.services.profiles import ProfileRegistry
 from docguard.services.store import SQLiteTaskStore
@@ -27,7 +33,7 @@ app.state.upload_storage = UploadStorage.from_environment()
 _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
-_DASHBOARD_ASSET_VERSION = "task-filter-v2"
+_DASHBOARD_ASSET_VERSION = "task-continue-v1"
 
 
 def get_upload_storage(request: Request) -> UploadStorage:
@@ -182,3 +188,22 @@ def collect_task(task_id: str):
         raise HTTPException(status_code=404, detail="Task not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/tasks/{task_id}/continue")
+def continue_task(task_id: str, background_tasks: BackgroundTasks):
+    """Continue a disconnected OpenClaw attempt in the task's existing session."""
+    try:
+        task = store.get(task_id)
+        if task.status is not TaskStatus.COLLECTING:
+            raise ValueError(f"Task {task_id} is not collecting")
+        if task.agent_backend is not AgentBackend.OPENCLAW:
+            raise ValueError(f"Task {task_id} does not use the OpenClaw backend")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    background_tasks.add_task(service.continue_collecting, task_id)
+    logger.info("task.continue.requested task_id=%s", task_id)
+    return {"task_id": task_id, "status": "collecting"}
