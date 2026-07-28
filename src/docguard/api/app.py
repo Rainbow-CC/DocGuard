@@ -7,6 +7,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Requ
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from dotenv import load_dotenv
 
 from docguard.domain.models import (
     AgentBackend,
@@ -16,24 +17,27 @@ from docguard.domain.models import (
     UploadDocumentResponse,
 )
 from docguard.logging_config import configure_logging
+from docguard.services.action_chains import ActionChainUnavailableError, OpenClawActionChainExporter
 from docguard.services.profiles import ProfileRegistry
 from docguard.services.store import SQLiteTaskStore
 from docguard.services.tasks import AuditTaskService
 from docguard.services.uploads import UploadStorage, UploadTooLargeError, UploadValidationError
 
 
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 configure_logging()
 logger = logging.getLogger("docguard.api")
 
 store = SQLiteTaskStore.from_environment()
 service = AuditTaskService(store, ProfileRegistry())
+action_chain_exporter = OpenClawActionChainExporter(service.artifacts)
 app = FastAPI(title="DocGuard", version="0.1.0")
 app.state.upload_storage = UploadStorage.from_environment()
 
 _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
-_DASHBOARD_ASSET_VERSION = "task-continue-v1"
+_DASHBOARD_ASSET_VERSION = "action-chain-v1"
 
 
 def get_upload_storage(request: Request) -> UploadStorage:
@@ -46,7 +50,10 @@ def dashboard(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
-        context={"dashboard_asset_version": _DASHBOARD_ASSET_VERSION},
+        context={
+            "dashboard_asset_version": _DASHBOARD_ASSET_VERSION,
+            "action_chain_export_enabled": action_chain_exporter.enabled,
+        },
     )
 
 
@@ -176,6 +183,22 @@ def download_task_report(task_id: str) -> Response:
             )
         },
     )
+
+
+@app.get("/api/v1/tasks/{task_id}/action-chain.md")
+def download_task_action_chain(task_id: str) -> FileResponse:
+    """Export and download the full OpenClaw trajectory for development diagnostics."""
+    try:
+        task = store.get(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    try:
+        path = action_chain_exporter.download_path(task)
+    except ActionChainUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    filename = f"docguard-action-chain-{task.task_id}.md"
+    logger.info("task.action_chain.downloaded task_id=%s filename=%s", task.task_id, filename)
+    return FileResponse(path, media_type="text/markdown", filename=filename)
 
 
 @app.post("/api/v1/tasks/{task_id}/collect")

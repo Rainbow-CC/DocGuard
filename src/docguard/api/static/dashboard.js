@@ -10,7 +10,7 @@
     title: document.querySelector('#drop-title'), description: document.querySelector('#drop-description'),
     status: document.querySelector('#task-status'), name: document.querySelector('#task-name'), id: document.querySelector('#task-id'),
     findings: document.querySelector('#findings-count'), backend: document.querySelector('#backend-name'), updated: document.querySelector('#updated-at'),
-    report: document.querySelector('#report-link'), refresh: document.querySelector('#refresh-label'), card: document.querySelector('#task-card'),
+    report: document.querySelector('#report-link'), actionChain: document.querySelector('#action-chain-link'), refresh: document.querySelector('#refresh-label'), card: document.querySelector('#task-card'),
     panel: document.querySelector('#findings-panel'), list: document.querySelector('#findings-list'), descriptionPanel: document.querySelector('#findings-description'), pagination: document.querySelector('#findings-pagination'),
     summary: document.querySelector('#findings-summary'), summaryDescription: document.querySelector('#findings-summary-description'), summaryMetrics: document.querySelector('#findings-summary-metrics'), details: document.querySelector('#details-button'), continue: document.querySelector('#continue-button'),
     taskList: document.querySelector('#task-list'), evidenceDrawer: document.querySelector('#evidence-drawer'), evidenceTitle: document.querySelector('#evidence-title'),
@@ -77,6 +77,10 @@
     elements.backend.textContent = backendLabels[task.agent_backend] || String(task.agent_backend || '—').toUpperCase(); elements.updated.textContent = formatTime(task.updated_at);
     if (task.report_markdown) { elements.report.href = `/api/v1/tasks/${task.task_id}/report.md`; elements.report.classList.remove('disabled'); elements.report.removeAttribute('aria-disabled'); }
     else { elements.report.href = '#'; elements.report.classList.add('disabled'); elements.report.setAttribute('aria-disabled', 'true'); }
+    if (elements.actionChain) {
+      if (task.agent_backend === 'openclaw' && task.attempts?.length) { elements.actionChain.href = `/api/v1/tasks/${task.task_id}/action-chain.md`; elements.actionChain.classList.remove('disabled'); elements.actionChain.removeAttribute('aria-disabled'); }
+      else { elements.actionChain.href = '#'; elements.actionChain.classList.add('disabled'); elements.actionChain.setAttribute('aria-disabled', 'true'); }
+    }
     const completed = task.status === 'completed';
     elements.details.hidden = !completed;
     elements.continue.hidden = !(task.status === 'collecting' && task.agent_backend === 'openclaw');

@@ -3,8 +3,12 @@
 set -euo pipefail
 
 HOME_DIR="${HOME:?HOME is not set}"
-DEST_ROOT="$HOME_DIR/trajectory-export"
+DEST_ROOT="${DOCGUARD_TRAJECTORY_EXPORT_ROOT:-$HOME_DIR/trajectory-export}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+
+# DocGuard invokes this script through a non-interactive WSL process, which does
+# not load the shell profile that normally adds the user-installed OpenClaw CLI.
+export PATH="$HOME_DIR/.npm-global/bin:$PATH"
 
 if [ "$#" -ne 1 ]; then
   echo "用法：$0 <task-id>" >&2
