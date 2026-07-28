@@ -109,7 +109,9 @@ class AuditTaskService:
         for finding in result.findings:
             merged.setdefault(finding.root_cause_key, finding)
         task.findings = list(merged.values())
-        task.report_markdown = render_markdown(task.profile, task.findings)
+        task.report_markdown = render_markdown(
+            task.profile, task.findings, self.artifacts.read_evidence(task, attempt)
+        )
         self._set_attempt_status(attempt, AttemptStatus.COMPLETED, None)
         completed = self.store.update(task, status=TaskStatus.COMPLETED)
         logger.info(

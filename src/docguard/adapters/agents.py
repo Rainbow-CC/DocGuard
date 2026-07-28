@@ -69,7 +69,7 @@ class OpenClawAgentGateway:
 
     def continue_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None:
         """Continue the task's existing Gateway conversation and collect its SSE."""
-        return self._stream_attempt(task, attempt, "继续", previous_response_id=attempt.gateway_response_id)
+        return self._stream_attempt(task, attempt, "当前任务若未完成审核，则继续审核，否则告诉我已完成", previous_response_id=attempt.gateway_response_id)
 
     def _stream_attempt(
         self,
