@@ -1,11 +1,15 @@
+# 报告审核 Agent 扩展模板
+
+本模板供平台工程师新增报告审核类型时使用；它不属于 Agent 的运行时输入。
+
+新增的 Agent skill 应具有以下 front matter：
+
+```yaml
 ---
 name: docx-<report-type>-audit
 description: 使用 DocGuard 通用 DOCX 证据流水线审核 <报告类型>，并原子交付结构化 findings。
 ---
-
-# <报告类型>审核
-
-本 skill 必须遵循平台 core contract，且只允许变更本报告类型的规则包和视觉策略。
+```
 
 ## 固定流程
 
@@ -18,8 +22,13 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核 <报告类型>，
 
 ## 可变内容
 
-- `review-packs/<report-type>/review-rules.md`
-- `review-packs/<report-type>/visual-policy.yaml`
-- 可选的视觉提示词和事实 Schema
+每个新类型只新增以下内容：
+
+```text
+review-packs/<report-type>/
+├── review-rules.md
+├── visual-policy.yaml
+└── 可选的视觉提示词和事实 Schema
+```
 
 不得复制或修改 core 的提取、证据、Finding 校验与原子交付逻辑。规则包版本必须与任务 manifest 的审核类型快照一致。

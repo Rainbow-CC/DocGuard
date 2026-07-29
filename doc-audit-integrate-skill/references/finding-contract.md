@@ -14,6 +14,44 @@ completion_criteria, evidence_ids, evidence_refs, root_cause_key, agent_backend
 ```
 
 - `schema_version` 固定为 `finding-v1`，`agent_backend` 固定为 `openclaw`；`confidence` 范围为 0 至 1。
+
+## 标准 Finding 示例
+
+以下 JSON 是所有报告类型必须遵守的完整结构；报告类型只能替换规则标识、审核维度和业务内容，不能删改字段或添加私有字段：
+
+```json
+{
+  "finding_id": "fd_<稳定标识>",
+  "schema_version": "finding-v1",
+  "rule_id": "<报告类型.规则标识>",
+  "category": "一致性",
+  "review_dimension": "一致性与可读性",
+  "judgment": "文本不一致",
+  "severity": "一般",
+  "confidence": 0.9,
+  "title": "<可独立理解的标题>",
+  "text_evidence": ["第1章（概述），block:1：<完整证据>"],
+  "image_evidence": ["不适用（纯文本审核）"],
+  "problem_description": "<根因及范围>",
+  "impact": "<对评审、实施准备或理解的影响>",
+  "revision_suggestion": "<可执行动作>",
+  "revision_location": "第 1 章",
+  "completion_criteria": "<可验证状态>",
+  "evidence_ids": ["block:1"],
+  "evidence_refs": [
+    {
+      "evidence_id": "block:1",
+      "role": "primary",
+      "quote": "<原文精确摘录>",
+      "explanation": "<该摘录如何支持结论>",
+      "selector": null,
+      "region": null
+    }
+  ],
+  "root_cause_key": "<稳定、可解释的根因键>",
+  "agent_backend": "openclaw"
+}
+```
 - 所有结论必须有可定位的输入证据。没有明确证据时使用“不确定”，不得推断生产事实或监管结论。
 - `judgment` 只能为：`图文不一致`、`文本不一致`、`文本不完整`、`未提供图示证据`、`不确定`、`不适用`。
 - `severity` 只能为：`重大`、`一般`、`优化`、`观察`。
