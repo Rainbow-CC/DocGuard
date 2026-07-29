@@ -19,7 +19,7 @@ from docguard.domain.models import (
 )
 from docguard.graph.audit_graph import build_audit_graph
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
-from docguard.services.profiles import ProfileRegistry
+from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.reporting import render_markdown
 from docguard.services.store import TaskStore
 
@@ -31,27 +31,33 @@ class AuditTaskService:
     def __init__(
         self,
         store: TaskStore,
-        profiles: ProfileRegistry,
+        review_types: ReviewTypeRegistry,
         artifacts: ArtifactStore | None = None,
         openclaw_gateway: OpenClawAttemptGateway | None = None,
     ) -> None:
         self.store = store
-        self.profiles = profiles
+        self.review_types = review_types
         self.artifacts = artifacts or ArtifactStore.from_environment()
         self.openclaw_gateway = openclaw_gateway or OpenClawAgentGateway()
 
     def create(self, request: CreateTaskRequest) -> AuditTask:
+        review_type = self.review_types.get(request.review_type_id)
+        if not hasattr(review_type, "agent_backend"):
+            raise KeyError(f"Registry returned no review type for {request.review_type_id}")
+        backend = request.agent_backend or review_type.agent_backend
         task = AuditTask(
             document=request.document,
-            profile=self.profiles.get(request.profile_id),
-            agent_backend=request.agent_backend,
+            profile=review_type.profile,
+            review_type=review_type,
+            agent_backend=backend,
         )
         created = self.store.create(task)
         logger.info(
-            "task.created task_id=%s backend=%s profile_id=%s filename=%s",
+            "task.created task_id=%s backend=%s review_type=%s@%s filename=%s",
             created.task_id,
             created.agent_backend.value,
-            created.profile.profile_id,
+            created.review_type.review_type_id,
+            created.review_type.version,
             created.document.filename,
         )
         return created

@@ -1,6 +1,6 @@
 ---
 name: docx-tech-architecture-audit
-description: 审核技术 DOCX 报告的全文、表格与最终可见架构图，保留可审计的 OOXML 顺序结构、修订状态、图题和嵌入图片。将结构化 findings 原子交付给 DocGuard，而非在聊天答复中交付审核结果。
+description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告，并将结构化 findings 原子交付给 DocGuard。
 ---
 
 # DOCX 技术文档审核
@@ -13,13 +13,13 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 
 - `INPUT_DOCX`：只读 DOCX 路径。
 - `DOCGUARD_TASK_ID`、`DOCGUARD_ATTEMPT_ID`：本次交付身份。
-- `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含任务身份、文档引用、Profile 快照和提示词版本。
+- `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含任务身份、文档引用、Profile 与审核类型快照。
 - `DOCGUARD_RESULT_FILE`：唯一允许交付的最终文件，固定以 `findings.json` 结尾。
 - `DOCGUARD_EVIDENCE_DIR`：应用提供的证据包交付目录。必须在提交 findings 前写入 `audit-evidence.json` 和渲染图片；不得写入其他目录。
 
 `DOCGUARD_RESULT_FILE` 的父目录由应用预先创建，并只授予本 attempt 写权限。输入 DOCX、manifest、审计包和图件必须只读。禁止写入 `$HOME`、其他任务目录或任意未声明目录。
 
-最终交付物不是 Markdown 报告。应用负责合并、证据校验、编号和 Markdown/PDF 渲染；Agent 只交付符合 [references/architecture-review-contract.md](references/architecture-review-contract.md) 的结构化 JSON。
+最终交付物不是 Markdown 报告。应用负责合并、证据校验、编号和 Markdown/PDF 渲染；Agent 只交付符合 [references/finding-contract.md](references/finding-contract.md) 的结构化 JSON。
 
 ## 固定工作流
 
@@ -57,12 +57,12 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 
 2. 仅构造一次视觉提示词，并按需逐图提取事实。
 
-   `vision-prompt.txt` 是视觉事实提取阶段的运行时提示词，不是用户提供的输入文件。通过将单图事实提取模板中的 Schema 占位符替换为完整的架构事实 Schema 生成。整份文档只生成一次，随后原样用于需要理解的候选图。
+   `vision-prompt.txt` 是视觉事实提取阶段的运行时提示词，不是用户提供的输入文件。通过将当前审核类型规则包的单图事实提取模板中的 Schema 占位符替换为对应事实 Schema 生成。整份文档只生成一次，随后原样用于需要理解的图件。
 
    ```bash
    python3 "$BASE/scripts/build_vision_prompt.py" \
-     --template "$BASE/references/vision-extraction-prompt.md" \
-     --schema "$BASE/references/architecture-facts.schema.json" \
+     --template "$BASE/review-packs/technical-architecture/vision-prompt.md" \
+     --schema "$BASE/review-packs/technical-architecture/vision-facts.schema.json" \
      --output "$WORK/vision-prompt.txt"
    test -s "$WORK/vision-prompt.txt"
    ```
@@ -79,7 +79,7 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 
 3. 执行全文与图文两路审核。
 
-   读取 [references/architecture-review-contract.md](references/architecture-review-contract.md) 一次，并严格按其中的 JSON 契约构造每一项 finding。先审核完整的 `audit-context.md`，形成全文审核发现；不得因为没有图件而忽略全文问题。
+   读取 [references/finding-contract.md](references/finding-contract.md) 和 [review-packs/technical-architecture/review-rules.md](review-packs/technical-architecture/review-rules.md) 各一次，并严格按平台 Finding 契约及本类型规则构造每一项 finding。先审核完整的 `audit-context.md`，形成全文审核发现；不得因为没有图件而忽略全文问题。
 
    再对每张已取得视觉反馈的最终可见图，使用审计包中的所属章节及原始视觉反馈执行图文一致性审核。跳过视觉理解的装饰性图片不进入逐图审核。图中未体现仅表示该图未提供证据，不表示生产环境不存在；纯文本发现不得以“图中未体现”作为问题依据。
 
@@ -93,7 +93,7 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 
 4. 交付结构化 findings。
 
-   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile 与提示词版本；不得伪造或猜测它们。必须先将可展示的审计包交付给应用：`audit-evidence.json` 写入 `$DOCGUARD_EVIDENCE_DIR`，并将 `$WORK/extracted/rendered/` 原样复制为 `$DOCGUARD_EVIDENCE_DIR/rendered/`。`evidence_refs` 只能引用其中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
+   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；不得伪造或猜测它们。必须先将可展示的审计包交付给应用：`audit-evidence.json` 写入 `$DOCGUARD_EVIDENCE_DIR`，并将 `$WORK/extracted/rendered/` 原样复制为 `$DOCGUARD_EVIDENCE_DIR/rendered/`。`evidence_refs` 只能引用其中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
 
    ```bash
    PARTIAL_FILE="$RESULT_DIR/findings.partial.json"
@@ -113,6 +113,6 @@ description: 审核技术 DOCX 报告的全文、表格与最终可见架构图�
 
 ## 资源
 
-- [references/vision-extraction-prompt.md](references/vision-extraction-prompt.md)：单图事实提取模板。
-- [references/architecture-facts.schema.json](references/architecture-facts.schema.json)：视觉事实提取提示词的输出引导 Schema，不作响应校验。
-- [references/architecture-review-contract.md](references/architecture-review-contract.md)：审核结论与 `findings.json` 的唯一输出契约。
+- [references/finding-contract.md](references/finding-contract.md)：所有报告类型共用的 Finding 契约。
+- [references/agent-result-contract.md](references/agent-result-contract.md)：所有报告类型共用的结果 envelope。
+- [review-packs/technical-architecture/](review-packs/technical-architecture/)：本类型的规则和视觉事实提取资料。

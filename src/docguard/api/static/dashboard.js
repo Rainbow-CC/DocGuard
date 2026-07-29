@@ -4,7 +4,9 @@
   const dropZone = document.querySelector('#drop-zone');
   const button = document.querySelector('#submit-button');
   const message = document.querySelector('#form-message');
-  const backend = document.querySelector('#backend');
+  const reviewType = document.querySelector('#review-type');
+  const reviewTypeName = document.querySelector('#review-type-name');
+  const reviewTypeDescription = document.querySelector('#review-type-description');
   const taskFilenameFilter = document.querySelector('#task-filename-filter');
   const elements = {
     title: document.querySelector('#drop-title'), description: document.querySelector('#drop-description'),
@@ -23,6 +25,7 @@
   let tasks = [];
   let filenameQuery = '';
   let poller = null;
+  let reviewTypes = [];
   const evidenceCache = new Map();
 
   const backendLabels = { stub: 'STANDARD', openclaw: 'OPENCLAW', langchain: 'LANGCHAIN' };
@@ -32,6 +35,23 @@
   const findingsPerPage = 10;
 
   function setMessage(text = '', kind = '') { message.textContent = text; message.className = `form-message ${kind}`; }
+  function updateReviewTypeDescription() {
+    const selected = reviewTypes.find((item) => item.review_type_id === reviewType.value);
+    reviewTypeName.textContent = selected ? `${selected.display_name} · v${selected.version}` : '—';
+    reviewTypeDescription.textContent = selected?.description || '请选择平台提供的报告审核类型';
+  }
+  async function loadReviewTypes() {
+    const response = await fetch('/api/v1/review-types');
+    if (!response.ok) throw new Error('无法加载可用报告类型');
+    reviewTypes = await response.json();
+    reviewType.replaceChildren();
+    reviewTypes.forEach((item) => {
+      const option = document.createElement('option'); option.value = item.review_type_id;
+      option.textContent = item.display_name; reviewType.append(option);
+    });
+    reviewType.disabled = reviewTypes.length === 0;
+    updateReviewTypeDescription();
+  }
   function setFile(file) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.docx')) { setMessage('请选择 DOCX 格式的技术文档。', 'error'); return; }
@@ -177,6 +197,7 @@
 
   dropZone.addEventListener('click', () => fileInput.click()); dropZone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); } });
   fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+  reviewType.addEventListener('change', updateReviewTypeDescription);
   taskFilenameFilter.addEventListener('input', () => { filenameQuery = taskFilenameFilter.value; renderTaskList(); renderSelectedTask(); });
   ['dragenter','dragover'].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
   ['dragleave','drop'].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));
@@ -189,7 +210,8 @@
       const uploadResponse = await fetch(`/api/v1/agents/${agentId()}/uploads`, { method:'POST', body:upload });
       if (!uploadResponse.ok) throw new Error((await uploadResponse.json()).detail || '文件上传失败');
       const stored = await uploadResponse.json(); button.querySelector('span').textContent = '提交中';
-      const taskResponse = await fetch('/api/v1/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ document:{ filename:stored.filename, content_sha256:stored.content_sha256, source_uri:stored.source_uri }, agent_backend:backend.value }) });
+      if (!reviewType.value) throw new Error('请先选择报告类型');
+      const taskResponse = await fetch('/api/v1/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ document:{ filename:stored.filename, content_sha256:stored.content_sha256, source_uri:stored.source_uri }, review_type_id:reviewType.value }) });
       if (!taskResponse.ok) throw new Error((await taskResponse.json()).detail || '任务创建失败');
       const task = await taskResponse.json(); selectedTaskId = task.task_id; await refreshTasks(); setMessage('新任务已加入队列；其他审核任务将继续独立监测。', 'success');
     } catch (error) { setMessage(error.message || '请求未能完成，请稍后重试。', 'error'); }
@@ -208,5 +230,5 @@
     finally { elements.continue.disabled = false; elements.continue.querySelector('span').textContent = '↻'; }
   });
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeEvidence(); });
-  refreshTasks().catch((error) => { elements.refresh.textContent = '任务列表不可用'; setMessage(error.message, 'error'); });
+  Promise.all([loadReviewTypes(), refreshTasks()]).catch((error) => { elements.refresh.textContent = '任务列表不可用'; setMessage(error.message, 'error'); });
 })();

@@ -18,7 +18,7 @@ from docguard.domain.models import (
 )
 from docguard.logging_config import configure_logging
 from docguard.services.action_chains import ActionChainUnavailableError, OpenClawActionChainExporter
-from docguard.services.profiles import ProfileRegistry
+from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.store import SQLiteTaskStore
 from docguard.services.tasks import AuditTaskService
 from docguard.services.uploads import UploadStorage, UploadTooLargeError, UploadValidationError
@@ -29,7 +29,8 @@ configure_logging()
 logger = logging.getLogger("docguard.api")
 
 store = SQLiteTaskStore.from_environment()
-service = AuditTaskService(store, ProfileRegistry())
+review_types = ReviewTypeRegistry(store.database_path)
+service = AuditTaskService(store, review_types)
 action_chain_exporter = OpenClawActionChainExporter(service.artifacts)
 app = FastAPI(title="DocGuard", version="0.1.0")
 app.state.upload_storage = UploadStorage.from_environment()
@@ -37,7 +38,7 @@ app.state.upload_storage = UploadStorage.from_environment()
 _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
-_DASHBOARD_ASSET_VERSION = "action-chain-v1"
+_DASHBOARD_ASSET_VERSION = "review-types-v1"
 
 
 def get_upload_storage(request: Request) -> UploadStorage:
@@ -62,12 +63,26 @@ def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/v1/review-types")
+def list_review_types():
+    """Return the enabled, startup-loaded review products for the creation form."""
+    return [
+        {
+            "review_type_id": definition.review_type_id,
+            "version": definition.version,
+            "display_name": definition.display_name,
+            "description": definition.description,
+        }
+        for definition in review_types.list()
+    ]
+
+
 @app.post("/api/v1/tasks", response_model=TaskCreatedResponse, status_code=status.HTTP_202_ACCEPTED)
 def create_task(request: CreateTaskRequest, background_tasks: BackgroundTasks) -> TaskCreatedResponse:
     try:
         task = service.create(request)
     except KeyError as exc:
-        logger.warning("task.create.rejected profile_id=%s error=%s", request.profile_id, exc)
+        logger.warning("task.create.rejected review_type_id=%s error=%s", request.review_type_id, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     background_tasks.add_task(service.run, task.task_id)
     logger.info("task.queued task_id=%s backend=%s", task.task_id, task.agent_backend.value)

@@ -1,0 +1,4 @@
+enabled: true
+policy_version: 1
+fact_schema: vision-facts.schema.json
+prompt_template: vision-prompt.md

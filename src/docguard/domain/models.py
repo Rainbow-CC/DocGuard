@@ -188,6 +188,23 @@ class AuditProfile(BaseModel):
     prompt_versions: dict[str, int]
 
 
+class ReviewTypeDefinition(BaseModel):
+    """A versioned, platform-owned definition of one report review product."""
+
+    review_type_id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    version: str
+    display_name: str
+    description: str
+    agent_backend: AgentBackend = AgentBackend.OPENCLAW
+    agent_model_ref: str
+    skill_ref: str
+    core_contract_version: int = Field(ge=1)
+    rule_pack_ref: str
+    rule_pack_version: str
+    visual_policy: dict[str, object] = Field(default_factory=dict)
+    profile: AuditProfile
+
+
 class InputDocument(BaseModel):
     filename: str
     content_sha256: str = Field(min_length=64, max_length=64)
@@ -196,8 +213,10 @@ class InputDocument(BaseModel):
 
 class CreateTaskRequest(BaseModel):
     document: InputDocument
-    profile_id: str = "technical-audit"
-    agent_backend: AgentBackend = AgentBackend.OPENCLAW
+    review_type_id: str = "technical-architecture"
+    # Kept as an internal development override.  The web API does not expose it;
+    # production routing always comes from the selected review type definition.
+    agent_backend: AgentBackend | None = None
 
 
 class AuditTask(BaseModel):
@@ -205,6 +224,9 @@ class AuditTask(BaseModel):
     status: TaskStatus = TaskStatus.QUEUED
     document: InputDocument
     profile: AuditProfile
+    # Optional only so pre-platform task rows remain readable. Newly created
+    # tasks always carry a frozen review type definition.
+    review_type: ReviewTypeDefinition | None = None
     agent_backend: AgentBackend
     created_at: datetime = Field(default_factory=_server_now)
     updated_at: datetime = Field(default_factory=_server_now)

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from docguard.domain.models import AgentBackend, AuditTask, InputDocument
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
-from docguard.services.profiles import ProfileRegistry
+from docguard.services.profiles import DEFAULT_TECHNICAL_REVIEW_TYPE, ProfileRegistry
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
 
@@ -20,6 +20,7 @@ def _task() -> AuditTask:
             source_uri="file:///docguard-inbox/reviewer/sample/source.docx",
         ),
         profile=ProfileRegistry().get("technical-audit"),
+        review_type=DEFAULT_TECHNICAL_REVIEW_TYPE.model_copy(deep=True),
         agent_backend=AgentBackend.OPENCLAW,
     )
 
@@ -59,6 +60,9 @@ def _result(task: AuditTask, attempt_id: str, quote: str = "故障恢复<=24小�
         "profile_id": task.profile.profile_id,
         "profile_version": task.profile.version,
         "prompt_versions": task.profile.prompt_versions,
+        "review_type_id": task.review_type.review_type_id,
+        "review_type_version": task.review_type.version,
+        "core_contract_version": task.review_type.core_contract_version,
         "findings": [
             {
                 "finding_id": "fd_example",

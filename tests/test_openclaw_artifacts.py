@@ -19,6 +19,9 @@ def _result(task, attempt) -> dict[str, object]:
         "profile_id": task.profile.profile_id,
         "profile_version": task.profile.version,
         "prompt_versions": task.profile.prompt_versions,
+        "review_type_id": task.review_type.review_type_id,
+        "review_type_version": task.review_type.version,
+        "core_contract_version": task.review_type.core_contract_version,
         "findings": [
             {
                 "finding_id": "fd_example",

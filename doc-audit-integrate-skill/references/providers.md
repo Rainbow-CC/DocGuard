@@ -11,7 +11,7 @@
 ### 调用前准备
 
 1. 使用 `rendered_png_file` 指向的 PNG 作为 `IMAGE_FILE`。
-2. 读取 `vision-extraction-prompt.md` 和 `architecture-facts.schema.json`，将提示词中的 `<PASTE architecture-facts.schema.json HERE>` 替换为完整 Schema，得到 `VISION_PROMPT`。
+2. 从当前报告类型规则包读取视觉提示词和事实 Schema，将提示词中的 Schema 占位符替换为完整 Schema，得到 `VISION_PROMPT`。
 3. 不要把章节正文传给本次调用。
 
 ### 调用方法
@@ -24,4 +24,4 @@ mmx vision describe --image "$IMAGE_FILE" --prompt "$VISION_PROMPT"
 
 ### 响应处理
 
-将 `mmx` 返回的标准输出原样作为视觉反馈使用。响应可能是 JSON、含 JSON 的文本或非结构化文本；不得解析或提取 JSON 段，也不得依据 `architecture-facts.schema.json` 校验、拒绝或重试响应。仅在调用命令本身失败时记录局限性并继续。不得通过后处理猜测或改变图片事实。
+将 `mmx` 返回的标准输出原样作为视觉反馈使用。响应可能是 JSON、含 JSON 的文本或非结构化文本；不得解析或提取 JSON 段，也不得依据规则包中的事实 Schema 校验、拒绝或重试响应。仅在调用命令本身失败时记录局限性并继续。不得通过后处理猜测或改变图片事实。

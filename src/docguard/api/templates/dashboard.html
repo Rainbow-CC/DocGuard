@@ -40,10 +40,10 @@
         </div>
 
         <div class="form-row">
-          <label class="field-label">审核执行器
-            <span class="select-wrap"><select id="backend" name="backend"><option value="stub">标准审核 / Stub</option><option value="openclaw" selected>深度审核 / OpenClaw</option><option value="langchain">模型审核 / LangChain</option></select></span>
+          <label class="field-label">报告类型
+            <span class="select-wrap"><select id="review-type" name="review-type" disabled><option>加载审核类型中…</option></select></span>
           </label>
-          <div class="profile-note"><span>审计框架</span><strong>TECHNICAL-AUDIT <i>v1</i></strong><small>10 个风险维度 · 证据驱动</small></div>
+          <div class="profile-note"><span>审核说明</span><strong id="review-type-name">—</strong><small id="review-type-description">请选择平台提供的报告审核类型</small></div>
           <button id="submit-button" class="primary-button" type="submit"><span>开始审核</span><b>↗</b></button>
         </div>
       </form>

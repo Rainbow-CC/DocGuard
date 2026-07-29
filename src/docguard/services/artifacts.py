@@ -26,6 +26,9 @@ class AgentResult(BaseModel):
     profile_id: str
     profile_version: str
     prompt_versions: dict[str, int]
+    review_type_id: str
+    review_type_version: str
+    core_contract_version: int
     findings: list[Finding]
 
 
@@ -65,6 +68,7 @@ class ArtifactStore:
             "attempt_id": attempt.attempt_id,
             "document": task.document.model_dump(mode="json"),
             "profile": task.profile.model_dump(mode="json"),
+            "review_type": task.review_type.model_dump(mode="json") if task.review_type else None,
         }
         manifest_path = local_dir / "input-manifest.json"
         self._atomic_write_json(manifest_path, manifest)
@@ -182,6 +186,9 @@ class ArtifactStore:
             "profile_id": task.profile.profile_id,
             "profile_version": task.profile.version,
             "prompt_versions": task.profile.prompt_versions,
+            "review_type_id": task.review_type.review_type_id if task.review_type else "legacy-technical-architecture",
+            "review_type_version": task.review_type.version if task.review_type else "1.0.0",
+            "core_contract_version": task.review_type.core_contract_version if task.review_type else 1,
         }
         actual = result.model_dump(include=set(expected))
         if actual != expected:

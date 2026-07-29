@@ -22,6 +22,11 @@ def _manifest() -> dict[str, object]:
             "version": "1.0.0",
             "prompt_versions": {"full_text": 1, "architecture": 1, "merge": 1},
         },
+        "review_type": {
+            "review_type_id": "technical-architecture",
+            "version": "1.0.0",
+            "core_contract_version": 1,
+        },
     }
 
 
@@ -50,6 +55,9 @@ def _result(evidence_id: str = "table:35", quote: str = "数据中台 | 数管�
         "profile_id": "technical-audit",
         "profile_version": "1.0.0",
         "prompt_versions": {"full_text": 1, "architecture": 1, "merge": 1},
+        "review_type_id": "technical-architecture",
+        "review_type_version": "1.0.0",
+        "core_contract_version": 1,
         "findings": [
             {
                 "finding_id": "fd_example",

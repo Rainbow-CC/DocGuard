@@ -8,9 +8,6 @@ from pathlib import Path
 from typing import Any
 
 
-KEYWORDS = ("架构", "部署", "网络", "拓扑", "数据流", "流程", "组件", "环境", "高可用", "安全")
-
-
 def text_of(block: dict[str, Any]) -> str:
     if block.get("type") == "table":
         return "\n".join(" | ".join(str(cell) for cell in row) for row in block.get("rows", []))
@@ -63,7 +60,6 @@ def build_evidence(data: dict[str, Any]) -> dict[str, Any]:
             continue
         nearby = raw_blocks[max(0, position - 2): position + 3]
         context = "\n".join(text_of(item) for item in nearby if text_of(item))
-        matched = [word for word in KEYWORDS if word in context]
         chapter = chapter_by_id.get(block.get("chapter_id"), {})
         for image_id in image_ids:
             if image_id in images_by_id:
@@ -81,8 +77,11 @@ def build_evidence(data: dict[str, Any]) -> dict[str, Any]:
                 "chapter_number": chapter.get("chapter_number"),
                 "chapter_title": chapter.get("title"),
                 "rendered_png_file": image.get("rendered_png_file"),
+                # Candidate selection is report-type policy, not document extraction.
+                # The common bundle retains every final-visible image so all review
+                # agents can make their own rule-driven decision.
                 "candidate": True,
-                "candidate_reason": f"附近文本命中：{', '.join(matched)}" if matched else "未命中关键词；为避免遗漏，保留为待判定图件。",
+                "candidate_reason": "所有最终可见图件均由通用证据包保留；是否进行视觉审核由报告类型策略决定。",
                 "nearby_block_indexes": [item["index"] for item in nearby],
                 "nearby_text": context[:2000],
             }

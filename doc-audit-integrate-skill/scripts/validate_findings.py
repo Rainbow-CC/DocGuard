@@ -17,6 +17,9 @@ TOP_LEVEL = {
     "profile_id",
     "profile_version",
     "prompt_versions",
+    "review_type_id",
+    "review_type_version",
+    "core_contract_version",
     "findings",
 }
 FINDING_FIELDS = {
@@ -162,7 +165,7 @@ def main() -> int:
     parser.add_argument("--input", required=True, type=Path)
     args = parser.parse_args()
     manifest = require_fields(load_json(args.manifest), {
-        "schema_version", "task_id", "attempt_id", "document", "profile"
+        "schema_version", "task_id", "attempt_id", "document", "profile", "review_type"
     }, "manifest")
     result = require_fields(load_json(args.input), TOP_LEVEL, "result")
     indexed_evidence = build_evidence_index(load_json(args.evidence))
@@ -170,10 +173,16 @@ def main() -> int:
         raise ValueError("unsupported result schema_version")
     document = manifest["document"]
     profile = manifest["profile"]
+    review_type = manifest["review_type"]
+    if not isinstance(review_type, dict):
+        raise ValueError("manifest has no review type definition")
     expected = {
         "task_id": manifest["task_id"], "attempt_id": manifest["attempt_id"],
         "input_sha256": document["content_sha256"], "profile_id": profile["profile_id"],
         "profile_version": profile["version"], "prompt_versions": profile["prompt_versions"],
+        "review_type_id": review_type["review_type_id"],
+        "review_type_version": review_type["version"],
+        "core_contract_version": review_type["core_contract_version"],
     }
     if {key: result[key] for key in expected} != expected:
         raise ValueError("result metadata does not match manifest")

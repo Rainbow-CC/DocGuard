@@ -79,8 +79,10 @@ class OpenClawAgentGateway:
         *,
         previous_response_id: str | None = None,
     ) -> str | None:
+        if task.review_type is None:
+            raise GatewayExecutionError("Task has no frozen review type definition")
         request: dict[str, object] = {
-            "model": "openclaw/audit-runtime",
+            "model": task.review_type.agent_model_ref,
             "user": f"docguard:task:{task.task_id}",
             "stream": True,
             "input": input_text,
@@ -135,12 +137,20 @@ class OpenClawAgentGateway:
 
     @staticmethod
     def _prompt(task: AuditTask, attempt: AuditAttempt) -> str:
+        if task.review_type is None:
+            raise GatewayExecutionError("Task has no frozen review type definition")
         manifest_path = attempt.input_manifest_uri.removeprefix("file://")
         result_path = attempt.result_uri.removeprefix("file://")
         document_path = task.document.source_uri.removeprefix("file://")
         return "\n".join(
             [
-                "执行 docx-tech-architecture-audit skill。",
+                f"执行 {task.review_type.skill_ref} skill。",
+                f"DOCGUARD_REVIEW_TYPE={task.review_type.review_type_id}",
+                f"DOCGUARD_REVIEW_TYPE_VERSION={task.review_type.version}",
+                f"DOCGUARD_CORE_CONTRACT_VERSION={task.review_type.core_contract_version}",
+                f"DOCGUARD_RULE_PACK={task.review_type.rule_pack_ref}",
+                f"DOCGUARD_RULE_PACK_VERSION={task.review_type.rule_pack_version}",
+                f"DOCGUARD_VISUAL_POLICY={json.dumps(task.review_type.visual_policy, ensure_ascii=False)}",
                 f"INPUT_DOCX={document_path}",
                 f"DOCGUARD_TASK_ID={task.task_id}",
                 f"DOCGUARD_ATTEMPT_ID={attempt.attempt_id}",
