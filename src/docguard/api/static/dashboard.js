@@ -20,6 +20,7 @@
   };
   let selectedFile = null;
   let selectedTaskId = null;
+  let taskSelectionInitialized = false;
   let detailTaskId = null;
   let findingsPage = 1;
   let tasks = [];
@@ -73,7 +74,15 @@
     const rows = filteredTasks.map((task) => {
       const row = document.createElement('button'); row.type = 'button'; row.className = `task-row${task.task_id === selectedTaskId ? ' selected' : ''}`;
       row.setAttribute('aria-pressed', String(task.task_id === selectedTaskId));
-      row.addEventListener('click', () => { selectedTaskId = task.task_id; detailTaskId = null; findingsPage = 1; renderTaskList(); renderSelectedTask(); });
+      row.addEventListener('click', () => {
+        const isSelected = task.task_id === selectedTaskId;
+        selectedTaskId = isSelected ? null : task.task_id;
+        taskSelectionInitialized = true;
+        detailTaskId = null;
+        findingsPage = 1;
+        renderTaskList();
+        renderSelectedTask();
+      });
       const status = document.createElement('span'); status.className = `status-pill ${task.status}`; status.textContent = statusLabel(task.status);
       const file = document.createElement('span'); file.className = 'task-file'; const name = document.createElement('strong'); name.textContent = task.document.filename; const id = document.createElement('small'); id.textContent = `TASK / ${task.task_id.slice(0, 8)}`; file.append(name, id);
       const backendMetric = document.createElement('span'); backendMetric.className = 'queue-metric'; backendMetric.innerHTML = `<span>执行器</span><strong>${backendLabels[task.agent_backend] || String(task.agent_backend).toUpperCase()}</strong>`;
@@ -89,9 +98,20 @@
   }
   function renderSelectedTask() {
     const task = tasks.find((item) => item.task_id === selectedTaskId);
-    if (!task) { elements.card.hidden = true; elements.summary.hidden = true; elements.panel.hidden = true; return; }
+    if (!task) {
+      elements.card.hidden = true;
+      elements.summary.hidden = true;
+      elements.panel.hidden = true;
+      elements.card.classList.remove('task-expanded');
+      elements.summary.classList.remove('task-expanded');
+      elements.panel.classList.remove('task-expanded');
+      return;
+    }
     const selectedRow = elements.taskList.querySelector('.task-row.selected');
     if (selectedRow) selectedRow.after(elements.card, elements.summary, elements.panel);
+    elements.card.classList.add('task-expanded');
+    elements.summary.classList.add('task-expanded');
+    elements.panel.classList.add('task-expanded');
     const status = task.status || 'queued'; elements.card.hidden = false; elements.card.classList.remove('task-empty'); elements.status.className = `status-pill ${status}`; elements.status.textContent = statusLabel(status);
     elements.name.textContent = task.document.filename; elements.id.textContent = `TASK / ${task.task_id}`; elements.findings.textContent = task.findings?.length ?? 0;
     elements.backend.textContent = backendLabels[task.agent_backend] || String(task.agent_backend || '—').toUpperCase(); elements.updated.textContent = formatTime(task.updated_at);
@@ -191,7 +211,9 @@
   }
   async function refreshTasks() {
     const response = await fetch('/api/v1/tasks'); if (!response.ok) throw new Error('无法获取任务列表');
-    tasks = await response.json(); if (!tasks.some((task) => task.task_id === selectedTaskId)) selectedTaskId = tasks[0]?.task_id || null;
+    tasks = await response.json();
+    if (selectedTaskId && !tasks.some((task) => task.task_id === selectedTaskId)) selectedTaskId = null;
+    if (!taskSelectionInitialized) { selectedTaskId = tasks[0]?.task_id || null; taskSelectionInitialized = true; }
     renderTaskList(); renderSelectedTask(); updatePolling();
   }
 

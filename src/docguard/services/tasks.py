@@ -110,11 +110,12 @@ class AuditTaskService:
             )
             return self.store.update(task, status=TaskStatus.COLLECTING)
 
-        # The application, not the agent, performs deterministic de-duplication and rendering.
+        # TODO: 考虑是否按照 root_cause_key 合并
         merged = {}
-        for finding in result.findings:
-            merged.setdefault(finding.root_cause_key, finding)
-        task.findings = list(merged.values())
+        # for finding in result.findings:
+        #     merged.setdefault(finding.root_cause_key, finding)
+        # task.findings = list(merged.values())
+        task.findings = result.findings
         task.report_markdown = render_markdown(
             task.profile, task.findings, self.artifacts.read_evidence(task, attempt)
         )

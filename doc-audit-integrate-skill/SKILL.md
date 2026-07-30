@@ -83,13 +83,24 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告
 
    再对每张已取得视觉反馈的最终可见图，使用审计包中的所属章节及原始视觉反馈执行图文一致性审核。跳过视觉理解的装饰性图片不进入逐图审核。图中未体现仅表示该图未提供证据，不表示生产环境不存在；纯文本发现不得以“图中未体现”作为问题依据。
 
-   每个问题只能在最终 `findings` 数组中出现一次。相同根因的图文问题必须合并，使用稳定且可解释的 `root_cause_key`。中间审核记录保存到 `$WORK/reviews/`。
+   每个可独立整改的问题在最终 `findings` 数组中只能出现一次；不得仅因 `root_cause_key` 相同而合并、删除或隐藏 Finding。`root_cause_key` 仅用于标识单条 Finding 的稳定、可解释根因。中间审核记录保存到 `$WORK/reviews/`。
 
    构造 `evidence_refs` 时，逐项回查 `$WORK/audit-evidence.json`，而不是从审核记录或记忆中重写证据：
 
    - 一个引用只能对应一个证据项。标题和正文位于不同 block 时分别引用，禁止合并为一个 `quote`。
    - 文本和表格 `quote` 必须逐字复制对应证据项中的连续原文；禁止改写、概括、拼接不连续行或使用 `...` / `……` 代替省略内容。
    - ID 前缀必须与证据类型一致：表格使用 `table:<block_index>`，其他文本块使用 `block:<block_index>`，图片使用 `image:<image_id>`。
+   - 表格的精确高亮可在 `evidence_refs[].selector` 中提供；只允许用于 `table:<block_index>`，格式为：
+
+     ```json
+     {
+       "row_match": {"列名": "精确单元格值"},
+       "columns": ["需高亮的列名"]
+     }
+     ```
+
+     `row_match` 的列名必须来自该表表头，且非空时必须恰好匹配一条数据行；`columns` 中的列名也必须存在于表头。无需精确高亮时填 `null`。不得对段落或图片使用 `selector`。
+   - 图片的精确高亮可在 `evidence_refs[].region` 中提供；只允许用于 `image:<image_id>`，格式为 `{"x": 0.05, "y": 0.20, "width": 0.40, "height": 0.15}`。四个值是相对原图宽高的 0 到 1 归一化比例，矩形不得越界。仅在对象或文字可可靠定位时使用；否则填 `null` 并说明局限性。不得对文本或表格使用 `region`。
 
 4. 交付结构化 findings。
 

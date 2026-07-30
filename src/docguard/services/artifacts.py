@@ -24,11 +24,11 @@ class AgentResult(BaseModel):
     attempt_id: str
     input_sha256: str = Field(min_length=64, max_length=64)
     profile_id: str
-    profile_version: str
-    prompt_versions: dict[str, int]
-    review_type_id: str
-    review_type_version: str
-    core_contract_version: int
+    profile_version: str | None = None
+    prompt_versions: dict[str, int] | None = None
+    review_type_id: str | None = None
+    review_type_version: str | None = None
+    core_contract_version: int | None = None
     findings: list[Finding]
 
 
@@ -106,7 +106,9 @@ class ArtifactStore:
         self._validate_evidence_refs(result.findings, evidence)
         for finding in result.findings:
             if finding.agent_backend is not AgentBackend.OPENCLAW:
-                raise ArtifactValidationError("OpenClaw artifacts must declare agent_backend=openclaw")
+                raise ArtifactValidationError(
+                    "OpenClaw artifacts must declare agent_backend=openclaw"
+                )
         logger.info(
             "artifact.result_validated task_id=%s attempt_id=%s findings=%s",
             task.task_id,
@@ -117,7 +119,9 @@ class ArtifactStore:
 
     def read_evidence(self, task: AuditTask, attempt: AuditAttempt) -> dict[str, Any] | None:
         """Read the review bundle delivered next to ``findings.json`` when present."""
-        path = self._local_dir(task.task_id, attempt.attempt_id) / "evidence" / "audit-evidence.json"
+        path = (
+            self._local_dir(task.task_id, attempt.attempt_id) / "evidence" / "audit-evidence.json"
+        )
         if not path.is_file():
             return None
         try:
@@ -144,7 +148,11 @@ class ArtifactStore:
             if not isinstance(image, dict) or not isinstance(image.get("image_id"), str):
                 continue
             images.append(
-                {key: value for key, value in image.items() if key not in {"rendered_png_file", "nearby_text"}}
+                {
+                    key: value
+                    for key, value in image.items()
+                    if key not in {"rendered_png_file", "nearby_text"}
+                }
                 | {"asset_url": f"{image_base}/{image['image_id']}"}
             )
         return {
@@ -163,7 +171,11 @@ class ArtifactStore:
         if evidence is None:
             return None
         image = next(
-            (item for item in evidence.get("candidate_images", []) if isinstance(item, dict) and item.get("image_id") == image_id),
+            (
+                item
+                for item in evidence.get("candidate_images", [])
+                if isinstance(item, dict) and item.get("image_id") == image_id
+            ),
             None,
         )
         if not image or not isinstance(image.get("rendered_png_file"), str):
@@ -176,7 +188,9 @@ class ArtifactStore:
             raise ArtifactValidationError("Evidence image path escapes its bundle") from None
         return candidate if candidate.is_file() else None
 
-    def _validate_metadata(self, task: AuditTask, attempt: AuditAttempt, result: AgentResult) -> None:
+    def _validate_metadata(
+        self, task: AuditTask, attempt: AuditAttempt, result: AgentResult
+    ) -> None:
         if result.schema_version != "docguard-agent-result-v1":
             raise ArtifactValidationError(f"Unsupported result schema: {result.schema_version}")
         expected = {
@@ -186,15 +200,21 @@ class ArtifactStore:
             "profile_id": task.profile.profile_id,
             "profile_version": task.profile.version,
             "prompt_versions": task.profile.prompt_versions,
-            "review_type_id": task.review_type.review_type_id if task.review_type else "legacy-technical-architecture",
+            "review_type_id": task.review_type.review_type_id
+            if task.review_type
+            else "legacy-technical-architecture",
             "review_type_version": task.review_type.version if task.review_type else "1.0.0",
-            "core_contract_version": task.review_type.core_contract_version if task.review_type else 1,
+            "core_contract_version": task.review_type.core_contract_version
+            if task.review_type
+            else 1,
         }
         actual = result.model_dump(include=set(expected))
         if actual != expected:
             raise ArtifactValidationError("Findings artifact does not match this task attempt")
 
-    def _validate_evidence_refs(self, findings: list[Finding], evidence: dict[str, Any] | None) -> None:
+    def _validate_evidence_refs(
+        self, findings: list[Finding], evidence: dict[str, Any] | None
+    ) -> None:
         refs = [ref for finding in findings for ref in finding.evidence_refs]
         if not refs:
             return
@@ -222,10 +242,14 @@ class ArtifactStore:
             raise ArtifactValidationError(f"Unknown evidence_id: {ref.evidence_id}")
         is_image = ref.evidence_id.startswith("image:")
         if ref.region is not None and not is_image:
-            raise ArtifactValidationError(f"Only image evidence may define region: {ref.evidence_id}")
+            raise ArtifactValidationError(
+                f"Only image evidence may define region: {ref.evidence_id}"
+            )
         if is_image:
             if ref.selector is not None:
-                raise ArtifactValidationError(f"Only text/table evidence may define selector: {ref.evidence_id}")
+                raise ArtifactValidationError(
+                    f"Only text/table evidence may define selector: {ref.evidence_id}"
+                )
             return
         if _normalize(ref.quote) not in _normalize(_block_content(item)):
             raise ArtifactValidationError(f"Evidence quote is not present in {ref.evidence_id}")
@@ -276,7 +300,12 @@ def _validate_selector(evidence_id: str, block: dict[str, Any], ref: EvidenceRef
         matches = [
             row
             for row in rows[1:]
-            if all(headers.index(key) < len(row) and str(row[headers.index(key)]) == expected for key, expected in selector.row_match.items())
+            if all(
+                headers.index(key) < len(row) and str(row[headers.index(key)]) == expected
+                for key, expected in selector.row_match.items()
+            )
         ]
         if len(matches) != 1:
-            raise ArtifactValidationError(f"Evidence selector must match exactly one table row: {evidence_id}")
+            raise ArtifactValidationError(
+                f"Evidence selector must match exactly one table row: {evidence_id}"
+            )
