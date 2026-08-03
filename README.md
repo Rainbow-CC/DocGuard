@@ -122,7 +122,7 @@ flowchart LR
 
 效果图：
 
-![](docs\picture\evidence-render.png)
+![](docs/picture/evidence-render.png)
 
 ## 技术架构
 
