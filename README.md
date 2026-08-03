@@ -126,36 +126,7 @@ flowchart LR
 
 ## 技术架构
 
-```mermaid
-flowchart TB
-    subgraph APP_START["应用侧：DocGuard（发起与调度）"]
-        direction TB
-        API["FastAPI 创建任务"] --> PREP["创建 attempt\n冻结 Profile / 规则版本\n写入 input-manifest.json"]
-        PREP --> START["OpenClawAgentGateway\n通过 SSE 启动 Agent"]
-        PREP --> DB[("任务 / attempt / 报告状态")]
-    end
-
-    subgraph AGENT["Agent 侧：OpenClaw + 审核 Skill"]
-        direction TB
-        RECEIVE["读取 manifest 与 DOCX"] --> EXTRACT["解包并提取 DOCX\n接受修订、表格、图件"]
-        EXTRACT --> PACKET["构建审计包\naudit-context.md\naudit-evidence.json"]
-        PACKET --> VISION["图件视觉事实提取\n按需调用审核模型"]
-        VISION --> REVIEW["按 Skill / review pack 审核\n生成 Finding + evidence_refs"]
-        REVIEW --> SELFVALIDATE["交付前校验"]
-        SELFVALIDATE --> DELIVER["原子交付\nevidence/ 与 findings.json"]
-    end
-
-    subgraph APP_END["应用侧：DocGuard（收集、校验与呈现）"]
-        direction TB
-        COLLECT["收集交付物\n读取 findings.json 与 evidence bundle"] --> VALIDATE["契约与证据校验\n引用、摘录、selector、region"]
-        VALIDATE --> REPORT["合并 Finding\n渲染 Markdown / PDF"]
-        REPORT --> UI["任务详情、证据复核与下载"]
-        REPORT --> DB
-    end
-
-    START --> RECEIVE
-    DELIVER --> COLLECT
-```
+![DocGuard 技术架构](docs/picture/architecture.png)
 
 ### 分层职责
 
