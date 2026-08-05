@@ -20,6 +20,7 @@ from docguard.domain.models import (
 from docguard.graph.audit_graph import build_audit_graph
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
 from docguard.services.profiles import ReviewTypeRegistry
+from docguard.services.preprocessing import AuditPreprocessor, PreprocessingError, WslDocxPreprocessor
 from docguard.services.reporting import render_markdown
 from docguard.services.store import TaskStore
 
@@ -34,11 +35,13 @@ class AuditTaskService:
         review_types: ReviewTypeRegistry,
         artifacts: ArtifactStore | None = None,
         openclaw_gateway: OpenClawAttemptGateway | None = None,
+        preprocessor: AuditPreprocessor | None = None,
     ) -> None:
         self.store = store
         self.review_types = review_types
         self.artifacts = artifacts or ArtifactStore.from_environment()
         self.openclaw_gateway = openclaw_gateway or OpenClawAgentGateway()
+        self.preprocessor = preprocessor or WslDocxPreprocessor.from_environment()
 
     def create(self, request: CreateTaskRequest) -> AuditTask:
         review_type = self.review_types.get(request.review_type_id)
@@ -110,10 +113,7 @@ class AuditTaskService:
             )
             return self.store.update(task, status=TaskStatus.COLLECTING)
 
-        # TODO: 考虑是否按照 root_cause_key 合并
-        merged = {}
-        # for finding in result.findings:
-        #     merged.setdefault(finding.root_cause_key, finding)
+        # Findings remain atomic; root_cause_key is explanatory metadata only.
         # task.findings = list(merged.values())
         task.findings = result.findings
         task.report_markdown = render_markdown(
@@ -172,6 +172,12 @@ class AuditTaskService:
         task.attempts.append(attempt)
         self._set_attempt_status(attempt, AttemptStatus.RUNNING)
         self.store.update(task, status=TaskStatus.RUNNING)
+        try:
+            self.preprocessor.prepare(task, attempt)
+        except PreprocessingError as exc:
+            self._set_attempt_status(attempt, AttemptStatus.FAILED, str(exc))
+            logger.exception("task.preprocessing.failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
+            return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
         try:
             attempt.gateway_response_id = self.openclaw_gateway.execute_attempt(task, attempt)
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)

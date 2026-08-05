@@ -21,9 +21,20 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告
 
 最终交付物不是 Markdown 报告。应用负责合并、证据校验、编号和 Markdown/PDF 渲染；Agent 只交付符合 [references/finding-contract.md](references/finding-contract.md) 的结构化 JSON。
 
+## 应用托管预处理（强制）
+
+DocGuard 应用负责在启动 Agent 前，在同一 attempt 的 Linux 工作目录执行 DOCX 接受修订提取、审计包构建、视觉提示词构建和逐图视觉事实提取。应用会将以下只读产物写入 `DOCGUARD_RESULT_FILE` 同级的 `work/`：
+
+- `work/audit-context.md`、`work/audit-evidence.json`；
+- `work/extracted/rendered/` 的原始渲染 PNG；
+- `work/vision-prompt.txt`、`work/vision-responses/<candidate-id>.raw.txt`；
+- 通过 Schema 校验时的 `work/vision-facts/<candidate-id>.json`，或同名 `.error.txt`。
+
+当这些产物存在时，Agent 必须直接使用它们：禁止重新运行提取、构建提示词、调用视觉模型、修改 `work/`，或覆盖应用已写入的 `$DOCGUARD_EVIDENCE_DIR`。视觉 JSON 是应用调用模型得到的架构图事实；`.raw.txt` 仍是可追溯的原始响应。Agent 从第 3 步开始审核，并只写自己的 `reviews/` 和最终 `findings.json`。
+
 ## 固定工作流
 
-1. 以“接受修订”视图提取文档并建立审计包。
+1. 以“接受修订”视图提取文档并建立审计包（仅兼容未启用应用托管预处理的旧运行时）。
 
    将 `INPUT_DOCX` 设为当前运行时提供的实际 `.docx` 路径。先验证该路径存在且后缀为 `.docx`。工作目录只能位于最终结果文件的父目录下，所有中间产物均保存其中；不得修改源 DOCX。
 
@@ -55,7 +66,7 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告
 
    `document-structure.json` 是仅供脚本重建审计包的内部提取记录，审核 agent 禁止读取它。审核阶段的唯一文档入口是 `audit-context.md`：先完整读取一次，再进行全文和图片审核。需要机器可读的完整证据时，仅读取 `audit-evidence.json`。候选图均应保留，除非没有 `rendered_png_file`。
 
-2. 仅构造一次视觉提示词，并按需逐图提取事实。
+2. 仅构造一次视觉提示词，并按需逐图提取事实（仅兼容未启用应用托管预处理的旧运行时）。
 
    `vision-prompt.txt` 是视觉事实提取阶段的运行时提示词，不是用户提供的输入文件。通过将当前审核类型规则包的单图事实提取模板中的 Schema 占位符替换为对应事实 Schema 生成。整份文档只生成一次，随后原样用于需要理解的图件。
 
@@ -107,6 +118,8 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告
    - 图片的精确高亮可在 `evidence_refs[].region` 中提供；只允许用于 `image:<image_id>`，格式为 `{"x": 0.05, "y": 0.20, "width": 0.40, "height": 0.15}`。四个值是相对原图宽高的 0 到 1 归一化比例，矩形不得越界。仅在对象或文字可可靠定位时使用；否则填 `null` 并说明局限性。不得对文本或表格使用 `region`。
 
 4. 交付结构化 findings。
+
+   应用托管预处理存在时，`$DOCGUARD_EVIDENCE_DIR/audit-evidence.json` 和 `rendered/` 已由应用写入且只读。跳过下方 `mkdir` / `cp` 命令，只生成临时 findings、执行校验并原子重命名；不得覆盖证据包。
 
    根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；不得伪造或猜测它们。必须先将可展示的审计包交付给应用：`audit-evidence.json` 写入 `$DOCGUARD_EVIDENCE_DIR`，并将 `$WORK/extracted/rendered/` 原样复制为 `$DOCGUARD_EVIDENCE_DIR/rendered/`。`evidence_refs` 只能引用其中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
 

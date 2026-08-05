@@ -157,7 +157,10 @@ class OpenClawAgentGateway:
                 f"DOCGUARD_AUDIT_MANIFEST={manifest_path}",
                 f"DOCGUARD_RESULT_FILE={result_path}",
                 f"DOCGUARD_EVIDENCE_DIR={result_path.rsplit('/', maxsplit=1)[0]}/evidence",
-                "只读输入 DOCX 和 manifest；不得输出最终 Markdown 审核报告。",
+                f"DOCGUARD_WORK_DIR={result_path.rsplit('/', maxsplit=1)[0]}/work",
+                "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
+                "只读取 manifest、DOCGUARD_WORK_DIR/audit-context.md、DOCGUARD_WORK_DIR/audit-evidence.json、DOCGUARD_WORK_DIR/vision-responses/ 和 DOCGUARD_WORK_DIR/vision-facts/；不得重新处理 DOCX、调用视觉模型或覆盖 evidence/。",
+                "不得输出最终 Markdown 审核报告。",
                 "必须先校验结果，再以同目录临时文件加原子重命名交付 findings.json。",
                 "聊天最终答复只确认工件已写入，不得在答复中输出 findings。",
             ]

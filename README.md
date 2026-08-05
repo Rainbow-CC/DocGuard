@@ -134,7 +134,8 @@ flowchart LR
 | --- | --- | --- | --- |
 | FastAPI | 创建任务、查询状态、鉴权、展示下载 | `api/app.py` | 保持接口，补鉴权与分页 |
 | Worker | 领取长任务、重试、限流、租约 | FastAPI `BackgroundTasks` 演示实现 | 独立 worker + Redis/RabbitMQ/云队列 |
-| 审计 Skill | 接受修订、DOCX/表格/图件提取、建立审计包与审核 | OpenClaw Agent | 受限运行时 + 独立审计包存储 |
+| 应用预处理 | 接受修订、DOCX/表格/图件提取、建立审计包、构建视觉提示词并逐图提取事实 | Windows 应用调用 WSL 工具链 | Linux worker + 对象存储 |
+| 审计 Skill | 基于应用交付的审计包、视觉原始响应和架构事实生成 findings | OpenClaw Agent | 受限运行时 + 独立审计包存储 |
 | OpenClaw 调度器 | 启动 artifact-delivered attempt 并记录 Gateway SSE | `OpenClawAgentGateway` | 队列 worker + 重试 |
 | 工件收集 | 读取并校验 `findings.json` | 共享 WSL 目录 | 对象存储事件/队列 |
 | 存储 | 任务元数据、状态、Finding 与报告 | SQLite `data/docguard.sqlite3` | PostgreSQL + S3/MinIO |
@@ -148,7 +149,7 @@ flowchart LR
 
 所有审核类型必须共用 DOCX 提取、`audit-context.md`、`audit-evidence.json` 和严格的 `Finding` 契约。类型扩展仅增加 Agent/skill 和规则包，不能分叉证据或结果协议。技术架构审核是内置种子类型；工程师可参考 [`报告审核 Agent 扩展模板`](docs/report-review-skill-template.md) 创建新 skill。
 
-OpenClaw Agent 负责提取 DOCX、建立审计包并生成可定位证据。新 `Finding` 使用结构化 `evidence_refs` 引用审计包中的 block、表格或图片；应用校验引用 ID、原文摘录、表格选择器与图片区域，并在任务详情中展示可复核的原文/图件。兼容既有 `evidence_ids`，但旧工件不会获得新证据阅读器的定位能力。
+应用 worker 负责提取 DOCX、建立审计包，并将单图视觉模型响应原样留存在 attempt 的 `work/vision-responses/` 中；Schema 合规的架构事实 JSON 写入 `work/vision-facts/`。OpenClaw Agent 只负责依据这些证据生成可定位 Finding。应用校验引用 ID、原文摘录、表格选择器与图片区域，并在任务详情中展示可复核的原文/图件。兼容既有 `evidence_ids`，但旧工件不会获得新证据阅读器的定位能力。
 
 建议生产环境为每个任务冻结：输入文件哈希、Profile 快照、提示词版本、模型引用、审计包 manifest、运行 ID 和原始模型响应 URI。
 
@@ -161,6 +162,11 @@ OpenClaw attempt 使用应用与 Agent 共享的结果根目录。应用侧通�
 └── <task_id>/
     └── <attempt_id>/
         ├── input-manifest.json
+        ├── work/                         # 应用在 WSL/Linux 中生成的中间工件
+        │   ├── audit-context.md
+        │   ├── audit-evidence.json
+        │   ├── vision-responses/
+        │   └── vision-facts/
         ├── findings.json
         └── evidence/
             ├── audit-evidence.json
@@ -168,9 +174,11 @@ OpenClaw attempt 使用应用与 Agent 共享的结果根目录。应用侧通�
                 └── *.png
 ```
 
-`input-manifest.json` 由应用创建；`audit-evidence.json` 和 `rendered/` 由 OpenClaw Skill 交付；`findings.json` 是 Agent 最终交付的结构化结果。Agent 必须先写入同目录临时文件并校验成功，再通过原子重命名交付 `findings.json`。应用检测到该文件后，读取同一 attempt 下的 `evidence/audit-evidence.json`，校验 `evidence_refs` 是否引用真实证据，最后合并 Finding 并生成报告。
+`input-manifest.json`、`work/`、`audit-evidence.json` 和 `rendered/` 均由应用预处理器交付；`findings.json` 是 Agent 最终交付的结构化结果。Agent 必须先写入同目录临时文件并校验成功，再通过原子重命名交付 `findings.json`。应用检测到该文件后，读取同一 attempt 下的 `evidence/audit-evidence.json`，校验 `evidence_refs` 是否引用真实证据，最后合并 Finding 并生成报告。
 
 证据引用只能使用当前审计包中的 `block:<block_index>`、`table:<block_index>` 或 `image:<image_id>`。图片文件必须位于该 attempt 的 `evidence/rendered/` 目录内；应用不会把内部文件路径直接暴露给浏览器，而是通过证据接口生成受控图片 URL。完整交付约束见 [`doc-audit-integrate-skill/SKILL.md`](doc-audit-integrate-skill/SKILL.md)。
+
+Windows 开发时，应用通过 `wsl.exe --distribution <发行版>` 调用 WSL 中的 `python3`、LibreOffice 和 Poppler；应用自身从 UNC 读取原始 PNG 并通过 `VisionAdapter` 直接调用视觉 API。将 `DOCGUARD_RESULT_WRITE_ROOT` / `DOCGUARD_RESULT_AGENT_ROOT`、`DOCGUARD_UPLOAD_WRITE_ROOT` / `DOCGUARD_UPLOAD_AGENT_ROOT` 配置为同一共享目录的 Windows / Linux 两种视图，并设置 `DOCGUARD_SKILL_AGENT_ROOT`（例如 `/mnt/c/Code/fromGitHub/DocGuard/doc-audit-integrate-skill`）、`DASHSCOPE_API_KEY` 和可选的 `DOCGUARD_QWEN_BASE_URL` / `DOCGUARD_QWEN_VISION_MODEL`。生产 Linux 中将两组根目录设为相同 Linux 路径，并令 `DOCGUARD_PREPROCESS_COMMAND=bash`；无需改动任务流程或 Agent 提示词。
 
 ## 快速开始
 

@@ -10,6 +10,7 @@ dependencies = [
   "jinja2>=3.1,<4.0",
   "langgraph>=0.4,<2.0",
   "pydantic>=2.10,<3.0",
+  "openai>=1.0,<3.0",
   "python-dotenv>=1.0,<2.0",
 ]
 
@@ -30,6 +31,7 @@ packages = ["src/docguard"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = ["integration: performs a real external model call"]
 
 [tool.ruff]
 line-length = 100

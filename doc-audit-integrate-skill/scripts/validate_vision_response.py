@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract and strictly validate an mmx vision response."""
+"""Extract and strictly validate a provider-neutral vision response."""
 from __future__ import annotations
 
 import argparse
@@ -29,8 +29,8 @@ def main() -> int:
         outer = json.loads(args.raw.read_text(encoding="utf-8"))
         if not isinstance(outer, dict):
             return fail("视觉响应必须是 JSON 对象。", args.error_output)
-        # mmx normally wraps facts in content. Accept direct facts as well so a
-        # provider that already returns structured JSON remains usable.
+        # Some adapters wrap facts in content. Accept direct facts as well so an
+        # adapter that already returns structured JSON remains usable.
         content = outer.get("content")
         if isinstance(content, (str, dict)):
             facts = json.loads(content) if isinstance(content, str) else content
