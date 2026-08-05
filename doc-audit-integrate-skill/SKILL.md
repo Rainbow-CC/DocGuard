@@ -11,11 +11,11 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告
 
 本 skill 由 DocGuard 的长任务 worker 调用。调用提示会提供以下值；不得自行猜测、替换或创建其他任务目录：
 
-- `INPUT_DOCX`：只读 DOCX 路径。
 - `DOCGUARD_TASK_ID`、`DOCGUARD_ATTEMPT_ID`：本次交付身份。
 - `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含任务身份、文档引用、Profile 与审核类型快照。
 - `DOCGUARD_RESULT_FILE`：唯一允许交付的最终文件，固定以 `findings.json` 结尾。
-- `DOCGUARD_EVIDENCE_DIR`：应用提供的证据包交付目录。必须在提交 findings 前写入 `audit-evidence.json` 和渲染图片；不得写入其他目录。
+- `DOCGUARD_EVIDENCE_DIR`：应用已交付的只读证据包目录。
+- `DOCGUARD_WORK_DIR`：应用已交付的只读审计上下文、渲染图件和视觉结果目录。
 
 `DOCGUARD_RESULT_FILE` 的父目录由应用预先创建，并只授予本 attempt 写权限。输入 DOCX、manifest、审计包和图件必须只读。禁止写入 `$HOME`、其他任务目录或任意未声明目录。
 
@@ -30,104 +30,48 @@ DocGuard 应用负责在启动 Agent 前，在同一 attempt 的 Linux 工作目
 - `work/vision-prompt.txt`、`work/vision-responses/<candidate-id>.raw.txt`；
 - 通过 Schema 校验时的 `work/vision-facts/<candidate-id>.json`，或同名 `.error.txt`。
 
-当这些产物存在时，Agent 必须直接使用它们：禁止重新运行提取、构建提示词、调用视觉模型、修改 `work/`，或覆盖应用已写入的 `$DOCGUARD_EVIDENCE_DIR`。视觉 JSON 是应用调用模型得到的架构图事实；`.raw.txt` 仍是可追溯的原始响应。Agent 从第 3 步开始审核，并只写自己的 `reviews/` 和最终 `findings.json`。
+Agent 必须直接使用这些产物：禁止重新运行提取、构建提示词、调用视觉模型、修改 `DOCGUARD_WORK_DIR`，或覆盖应用已写入的 `$DOCGUARD_EVIDENCE_DIR`。视觉 JSON 是应用调用模型得到的架构图事实；`.raw.txt` 仍是可追溯的原始响应。Agent 只写临时 findings 和最终 `findings.json`。
 
 ## 固定工作流
 
-1. 以“接受修订”视图提取文档并建立审计包（仅兼容未启用应用托管预处理的旧运行时）。
+1. 读取应用已交付的审计包和视觉结果。
 
-   将 `INPUT_DOCX` 设为当前运行时提供的实际 `.docx` 路径。先验证该路径存在且后缀为 `.docx`。工作目录只能位于最终结果文件的父目录下，所有中间产物均保存其中；不得修改源 DOCX。
+   验证 `DOCGUARD_AUDIT_MANIFEST`、`DOCGUARD_RESULT_FILE` 和 `DOCGUARD_WORK_DIR` 存在且非空；`DOCGUARD_RESULT_FILE` 必须以 `findings.json` 结尾且尚未存在。完整读取一次 `$DOCGUARD_WORK_DIR/audit-context.md`，需要机器可读证据时仅读取 `$DOCGUARD_WORK_DIR/audit-evidence.json`。`document-structure.json`、原始 DOCX 和图像渲染工具均不属于 Agent 的读取或执行范围。
 
-   ```bash
-   set -euo pipefail
-   BASE="{baseDir}"
-   : "${INPUT_DOCX:?INPUT_DOCX is required}"
-   : "${DOCGUARD_TASK_ID:?DOCGUARD_TASK_ID is required}"
-   : "${DOCGUARD_ATTEMPT_ID:?DOCGUARD_ATTEMPT_ID is required}"
-   : "${DOCGUARD_AUDIT_MANIFEST:?DOCGUARD_AUDIT_MANIFEST is required}"
-   : "${DOCGUARD_RESULT_FILE:?DOCGUARD_RESULT_FILE is required}"
-   RESULT_DIR="$(dirname "$DOCGUARD_RESULT_FILE")"
-   WORK="$RESULT_DIR/work"
-   test -f "$INPUT_DOCX"
-   test "${INPUT_DOCX##*.}" = "docx"
-   test -s "$DOCGUARD_AUDIT_MANIFEST"
-   test "$(basename "$DOCGUARD_RESULT_FILE")" = "findings.json"
-   test ! -e "$DOCGUARD_RESULT_FILE"
-   mkdir -p "$WORK/vision-responses" "$WORK/reviews"
-   python3 "$BASE/scripts/extract_docx_structure.py" "$INPUT_DOCX" --output "$WORK/extracted" --render-png --revision-mode accept
-   python3 "$BASE/scripts/build_audit_packet.py" "$WORK/extracted/document-structure.json" \
-     --context-output "$WORK/audit-context.md" \
-     --evidence-output "$WORK/audit-evidence.json"
-   test -s "$WORK/audit-context.md"
-   test -s "$WORK/audit-evidence.json"
-   ```
+   对每张已完成视觉理解的图片，读取对应的 `$DOCGUARD_WORK_DIR/vision-responses/<candidate-id>.raw.txt`；存在时优先使用 `$DOCGUARD_WORK_DIR/vision-facts/<candidate-id>.json` 作为结构化图像事实。视觉响应失败或未通过 Schema 校验时记录其局限性，但继续完成全文审核。
 
-   默认 `--revision-mode accept` 必须用于审核：提取器跳过 `w:del` / `w:moveFrom` 及其后代，保留 `w:ins` / `w:moveTo`，因此已删除的段落、表格行、图片和 OLE 预览不得进入审计包或视觉审核。原 DOCX 始终只读；如需排查历史版本，仅可显式使用 `--revision-mode all` 生成另一份独立审计包，且不得将其作为最终版本审核依据。
-
-   `document-structure.json` 是仅供脚本重建审计包的内部提取记录，审核 agent 禁止读取它。审核阶段的唯一文档入口是 `audit-context.md`：先完整读取一次，再进行全文和图片审核。需要机器可读的完整证据时，仅读取 `audit-evidence.json`。候选图均应保留，除非没有 `rendered_png_file`。
-
-2. 仅构造一次视觉提示词，并按需逐图提取事实（仅兼容未启用应用托管预处理的旧运行时）。
-
-   `vision-prompt.txt` 是视觉事实提取阶段的运行时提示词，不是用户提供的输入文件。通过将当前审核类型规则包的单图事实提取模板中的 Schema 占位符替换为对应事实 Schema 生成。整份文档只生成一次，随后原样用于需要理解的图件。
-
-   ```bash
-   python3 "$BASE/scripts/build_vision_prompt.py" \
-     --template "$BASE/review-packs/technical-architecture/vision-prompt.md" \
-     --schema "$BASE/review-packs/technical-architecture/vision-facts.schema.json" \
-     --output "$WORK/vision-prompt.txt"
-   test -s "$WORK/vision-prompt.txt"
-   ```
-
-   保留全部最终可见候选图，但仅将与技术架构审核可能相关的图片发送给视觉理解模型。可根据图题、附近文本、文件名或图片可见内容跳过明显的企业 Logo、品牌标识、装饰图、分隔图和纯图标；在审核记录中注明跳过原因。无法合理判断是否相关时，发送给视觉理解模型。
-
-   **图片原样使用（强制）：** 禁止裁剪、缩放、旋转、拼接、标注、增强、压缩、重编码或以任何方式修改 `rendered_png_file`。视觉理解模型必须直接接收提取工具渲染产生的原始图片文件。
-
-   对每张需要理解的候选图，直接使用当前会话可用的图片理解能力，将 `rendered_png_file` 作为原始图片附件，并将 `$WORK/vision-prompt.txt` 的完整内容作为唯一提示词发送给视觉模型。
-
-   - 当前模型支持视觉输入时，优先直接由当前模型完成理解；不要求、也不得调用特定供应商 CLI 或固定命令。
-   - 每次请求只能发送一张候选图片；图片必须直接使用 `rendered_png_file` 的原始文件，不得裁剪、缩放、旋转、拼接、转码或添加标注。
-   - 请求中仅包含图片和 `vision-prompt.txt` 的内容；不得附加章节正文、审核结论、评分要求或其他上下文。
-   - 将每张图的完整原始模型响应写入 `$WORK/vision-responses/<candidate-id>.raw.txt`，供后续图文一致性审核使用。
-   - 若图片理解请求失败，可使用当前会话中另一项可用的图片理解能力重试 1 次；两次均失败时，在对应 `.raw.txt` 中写入“图片理解失败”，并继续处理其他候选图。
-
-   视觉阶段只发送图片和视觉提示词，不发送章节正文，也不要求质量判断。不得依据 Schema 严格校验视觉响应；将模型原始响应作为视觉反馈。
-
-3. 执行全文与图文两路审核。
+2. 执行全文与图文两路审核。
 
    读取 [references/finding-contract.md](references/finding-contract.md) 和 [review-packs/technical-architecture/review-rules.md](review-packs/technical-architecture/review-rules.md) 各一次，并严格按平台 Finding 契约及本类型规则构造每一项 finding。先审核完整的 `audit-context.md`，形成全文审核发现；不得因为没有图件而忽略全文问题。
 
    再对每张已取得视觉反馈的最终可见图，使用审计包中的所属章节及原始视觉反馈执行图文一致性审核。跳过视觉理解的装饰性图片不进入逐图审核。图中未体现仅表示该图未提供证据，不表示生产环境不存在；纯文本发现不得以“图中未体现”作为问题依据。
 
-   每个可独立整改的问题在最终 `findings` 数组中只能出现一次；不得仅因 `root_cause_key` 相同而合并、删除或隐藏 Finding。`root_cause_key` 仅用于标识单条 Finding 的稳定、可解释根因。中间审核记录保存到 `$WORK/reviews/`。
-
-   构造 `evidence_refs` 时，逐项回查 `$WORK/audit-evidence.json`，而不是从审核记录或记忆中重写证据：
+   构造 `evidence_refs` 时，逐项回查 `$DOCGUARD_WORK_DIR/audit-evidence.json`，而不是从审核记录或记忆中重写证据：
 
    - 一个引用只能对应一个证据项。标题和正文位于不同 block 时分别引用，禁止合并为一个 `quote`。
    - 文本和表格 `quote` 必须逐字复制对应证据项中的连续原文；禁止改写、概括、拼接不连续行或使用 `...` / `……` 代替省略内容。
    - ID 前缀必须与证据类型一致：表格使用 `table:<block_index>`，其他文本块使用 `block:<block_index>`，图片使用 `image:<image_id>`。
    - 表格的精确高亮可在 `evidence_refs[].selector` 中提供；只允许用于 `table:<block_index>`，格式为：
-
+   
      ```json
      {
        "row_match": {"列名": "精确单元格值"},
        "columns": ["需高亮的列名"]
      }
      ```
-
+   
      `row_match` 的列名必须来自该表表头，且非空时必须恰好匹配一条数据行；`columns` 中的列名也必须存在于表头。无需精确高亮时填 `null`。不得对段落或图片使用 `selector`。
    - 图片的精确高亮可在 `evidence_refs[].region` 中提供；只允许用于 `image:<image_id>`，格式为 `{"x": 0.05, "y": 0.20, "width": 0.40, "height": 0.15}`。四个值是相对原图宽高的 0 到 1 归一化比例，矩形不得越界。仅在对象或文字可可靠定位时使用；否则填 `null` 并说明局限性。不得对文本或表格使用 `region`。
+   
+3. 交付结构化 findings。
 
-4. 交付结构化 findings。
+   `$DOCGUARD_EVIDENCE_DIR/audit-evidence.json` 和 `rendered/` 已由应用写入且只读。只生成临时 findings、执行校验并原子重命名；不得覆盖证据包。
 
-   应用托管预处理存在时，`$DOCGUARD_EVIDENCE_DIR/audit-evidence.json` 和 `rendered/` 已由应用写入且只读。跳过下方 `mkdir` / `cp` 命令，只生成临时 findings、执行校验并原子重命名；不得覆盖证据包。
-
-   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；不得伪造或猜测它们。必须先将可展示的审计包交付给应用：`audit-evidence.json` 写入 `$DOCGUARD_EVIDENCE_DIR`，并将 `$WORK/extracted/rendered/` 原样复制为 `$DOCGUARD_EVIDENCE_DIR/rendered/`。`evidence_refs` 只能引用其中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
+   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；不得伪造或猜测它们。`evidence_refs` 只能引用应用已交付证据包中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
 
    ```bash
-   PARTIAL_FILE="$RESULT_DIR/findings.partial.json"
-   mkdir -p "$DOCGUARD_EVIDENCE_DIR"
-   cp "$WORK/audit-evidence.json" "$DOCGUARD_EVIDENCE_DIR/audit-evidence.json"
-   cp -a "$WORK/extracted/rendered" "$DOCGUARD_EVIDENCE_DIR/rendered"
+   BASE="{baseDir}"
+   PARTIAL_FILE="$(dirname "$DOCGUARD_RESULT_FILE")/findings.partial.json"
    # 将完整 docguard-agent-result-v1 JSON 写入 "$PARTIAL_FILE"。
    python3 "$BASE/scripts/validate_findings.py" \
      --manifest "$DOCGUARD_AUDIT_MANIFEST" \
