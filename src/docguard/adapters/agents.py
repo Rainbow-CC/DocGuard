@@ -108,6 +108,12 @@ class OpenClawAgentGateway:
                     response.raise_for_status()
                     for event, payload in _iter_sse_events(response):
                         event_count += 1
+                        print(
+                            "openclaw.sse "
+                            f"task_id={task.task_id} attempt_id={attempt.attempt_id} "
+                            f"event={event} payload={payload!r}",
+                            flush=True,
+                        )
                         if event == "response.created":
                             response_id = _response_id(payload) or response_id
                             logger.info(
@@ -159,7 +165,7 @@ class OpenClawAgentGateway:
                 f"DOCGUARD_EVIDENCE_DIR={result_path.rsplit('/', maxsplit=1)[0]}/evidence",
                 f"DOCGUARD_WORK_DIR={result_path.rsplit('/', maxsplit=1)[0]}/work",
                 "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
-                "只读取 manifest、DOCGUARD_WORK_DIR/audit-context.md、DOCGUARD_WORK_DIR/audit-evidence.json、DOCGUARD_WORK_DIR/vision-responses/ 和 DOCGUARD_WORK_DIR/vision-facts/；不得重新处理 DOCX、调用视觉模型或覆盖 evidence/。",
+                "只读取 manifest、DOCGUARD_WORK_DIR/audit-context.md、DOCGUARD_WORK_DIR/audit-evidence.json 和 DOCGUARD_WORK_DIR/vision-responses/；不得重新处理 DOCX、调用视觉模型或覆盖 evidence/。",
                 "不得输出最终 Markdown 审核报告。",
                 "必须先校验结果，再以同目录临时文件加原子重命名交付 findings.json。",
                 "聊天最终答复只确认工件已写入，不得在答复中输出 findings。",

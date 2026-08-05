@@ -54,7 +54,7 @@ class QwenVisionAdapter:
         if not content:
             raise RuntimeError("Qwen returned no visual response content")
         # Keep the provider envelope for traceability while preserving the
-        # ``content`` shape consumed by validate_vision_response.py.
+        # model's original visible content without a second parsing step.
         raw = json.dumps({"content": content, "provider_response": response.model_dump(mode="json")}, ensure_ascii=False)
         return VisionResponse(self.adapter_id, self.model, raw)
 

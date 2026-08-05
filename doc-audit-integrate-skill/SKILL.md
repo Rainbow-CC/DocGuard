@@ -28,9 +28,8 @@ DocGuard 应用负责在启动 Agent 前，在同一 attempt 的 Linux 工作目
 - `work/audit-context.md`、`work/audit-evidence.json`；
 - `work/extracted/rendered/` 的原始渲染 PNG；
 - `work/vision-prompt.txt`、`work/vision-responses/<candidate-id>.raw.txt`；
-- 通过 Schema 校验时的 `work/vision-facts/<candidate-id>.json`，或同名 `.error.txt`。
 
-Agent 必须直接使用这些产物：禁止重新运行提取、构建提示词、调用视觉模型、修改 `DOCGUARD_WORK_DIR`，或覆盖应用已写入的 `$DOCGUARD_EVIDENCE_DIR`。视觉 JSON 是应用调用模型得到的架构图事实；`.raw.txt` 仍是可追溯的原始响应。Agent 只写临时 findings 和最终 `findings.json`。
+Agent 必须直接使用这些产物：禁止重新运行提取、构建提示词、调用视觉模型、修改 `DOCGUARD_WORK_DIR`，或覆盖应用已写入的 `$DOCGUARD_EVIDENCE_DIR`。`.raw.txt` 是唯一的视觉事实反馈和可追溯原始响应。Agent 只写临时 findings 和最终 `findings.json`。
 
 ## 固定工作流
 
@@ -38,7 +37,7 @@ Agent 必须直接使用这些产物：禁止重新运行提取、构建提示�
 
    验证 `DOCGUARD_AUDIT_MANIFEST`、`DOCGUARD_RESULT_FILE` 和 `DOCGUARD_WORK_DIR` 存在且非空；`DOCGUARD_RESULT_FILE` 必须以 `findings.json` 结尾且尚未存在。完整读取一次 `$DOCGUARD_WORK_DIR/audit-context.md`，需要机器可读证据时仅读取 `$DOCGUARD_WORK_DIR/audit-evidence.json`。`document-structure.json`、原始 DOCX 和图像渲染工具均不属于 Agent 的读取或执行范围。
 
-   对每张已完成视觉理解的图片，读取对应的 `$DOCGUARD_WORK_DIR/vision-responses/<candidate-id>.raw.txt`；存在时优先使用 `$DOCGUARD_WORK_DIR/vision-facts/<candidate-id>.json` 作为结构化图像事实。视觉响应失败或未通过 Schema 校验时记录其局限性，但继续完成全文审核。
+   对每张已完成视觉理解的图片，读取对应的 `$DOCGUARD_WORK_DIR/vision-responses/<candidate-id>.raw.txt`。视觉响应失败时记录其局限性，但继续完成全文审核。
 
 2. 执行全文与图文两路审核。
 

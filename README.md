@@ -149,7 +149,7 @@ flowchart LR
 
 所有审核类型必须共用 DOCX 提取、`audit-context.md`、`audit-evidence.json` 和严格的 `Finding` 契约。类型扩展仅增加 Agent/skill 和规则包，不能分叉证据或结果协议。技术架构审核是内置种子类型；工程师可参考 [`报告审核 Agent 扩展模板`](docs/report-review-skill-template.md) 创建新 skill。
 
-应用 worker 负责提取 DOCX、建立审计包，并将单图视觉模型响应原样留存在 attempt 的 `work/vision-responses/` 中；Schema 合规的架构事实 JSON 写入 `work/vision-facts/`。OpenClaw Agent 只负责依据这些证据生成可定位 Finding。应用校验引用 ID、原文摘录、表格选择器与图片区域，并在任务详情中展示可复核的原文/图件。兼容既有 `evidence_ids`，但旧工件不会获得新证据阅读器的定位能力。
+应用 worker 负责提取 DOCX、建立审计包，并将单图视觉模型响应原样留存在 attempt 的 `work/vision-responses/` 中。OpenClaw Agent 只负责依据这些原始视觉反馈和审计包生成可定位 Finding。应用校验引用 ID、原文摘录、表格选择器与图片区域，并在任务详情中展示可复核的原文/图件。兼容既有 `evidence_ids`，但旧工件不会获得新证据阅读器的定位能力。
 
 建议生产环境为每个任务冻结：输入文件哈希、Profile 快照、提示词版本、模型引用、审计包 manifest、运行 ID 和原始模型响应 URI。
 
@@ -165,8 +165,7 @@ OpenClaw attempt 使用应用与 Agent 共享的结果根目录。应用侧通�
         ├── work/                         # 应用在 WSL/Linux 中生成的中间工件
         │   ├── audit-context.md
         │   ├── audit-evidence.json
-        │   ├── vision-responses/
-        │   └── vision-facts/
+        │   └── vision-responses/
         ├── findings.json
         └── evidence/
             ├── audit-evidence.json

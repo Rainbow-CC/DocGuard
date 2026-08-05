@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
@@ -12,6 +13,8 @@ from docguard.domain.models import AuditAttempt, AuditTask
 from docguard.services.vision import QwenVisionAdapter, VisionAdapter, VisionResponseCache
 
 logger = logging.getLogger("docguard.preprocessing")
+MAX_VISION_IMAGES = 50
+MAX_VISION_WORKERS = 10
 
 
 class PreprocessingError(RuntimeError):
@@ -67,36 +70,49 @@ class WslDocxPreprocessor:
             raise PreprocessingError("Task has no frozen review type definition")
         document = task.document.source_uri.removeprefix("file://")
         attempt_dir = self.result_root / task.task_id / attempt.attempt_id
-        # A quoted, fixed script avoids Windows/WSL path guessing. Dynamic values
-        # are passed through environment variables, never interpolated into Bash.
-        script = r'''set -euo pipefail
-test -s "$INPUT_DOCX"
-test -d "$SKILL_ROOT"
-WORK="$ATTEMPT_DIR/work"
-mkdir -p "$WORK/vision-responses" "$WORK/vision-facts" "$ATTEMPT_DIR/evidence"
-python3 "$SKILL_ROOT/scripts/extract_docx_structure.py" "$INPUT_DOCX" --output "$WORK/extracted" --render-png --revision-mode accept
-python3 "$SKILL_ROOT/scripts/build_audit_packet.py" "$WORK/extracted/document-structure.json" --context-output "$WORK/audit-context.md" --evidence-output "$WORK/audit-evidence.json"
-python3 "$SKILL_ROOT/scripts/build_vision_prompt.py" --template "$SKILL_ROOT/review-packs/technical-architecture/vision-prompt.md" --schema "$SKILL_ROOT/review-packs/technical-architecture/vision-facts.schema.json" --output "$WORK/vision-prompt.txt"
-cp "$WORK/audit-evidence.json" "$ATTEMPT_DIR/evidence/audit-evidence.json"
-cp -a "$WORK/extracted/rendered" "$ATTEMPT_DIR/evidence/rendered"
-'''
-        environment = os.environ | {
-            "INPUT_DOCX": document,
-            "SKILL_ROOT": str(self.skill_root),
-            "ATTEMPT_DIR": str(attempt_dir),
-        }
+        runner = self.skill_root / "scripts" / "preprocess_attempt.sh"
         command = [self.command]
         if Path(self.command).name.lower() == "wsl.exe":
-            command.extend(["--distribution", self.distribution, "--", "bash", "-lc", script])
+            # Do not rely on Windows-to-WSL environment propagation.
+            command.extend(
+                [
+                    "--distribution",
+                    self.distribution,
+                    "--",
+                    "bash",
+                    str(runner),
+                    document,
+                    str(attempt_dir),
+                ]
+            )
         else:
-            command.extend(["-lc", script])
+            command.extend([str(runner), document, str(attempt_dir)])
+        logger.info(
+            "preprocessing.paths task_id=%s attempt_id=%s input_docx=%r skill_root=%r attempt_dir=%r",
+            task.task_id,
+            attempt.attempt_id,
+            document,
+            str(self.skill_root),
+            str(attempt_dir),
+        )
+        logger.debug("preprocessing.command task_id=%s attempt_id=%s command=%r", task.task_id, attempt.attempt_id, command)
         try:
-            completed = subprocess.run(command, env=environment, text=True, capture_output=True, timeout=900)
+            completed = subprocess.run(command, text=True, capture_output=True, timeout=900)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise PreprocessingError(f"Unable to start DOCX preprocessor: {exc}") from exc
         if completed.returncode:
-            detail = (completed.stderr or completed.stdout).strip()
-            raise PreprocessingError(f"DOCX preprocessing failed: {detail[-2000:]}")
+            logger.error(
+                "preprocessing.command_failed task_id=%s attempt_id=%s returncode=%s stdout=%r stderr=%r",
+                task.task_id,
+                attempt.attempt_id,
+                completed.returncode,
+                completed.stdout,
+                completed.stderr,
+            )
+            detail = (completed.stderr or completed.stdout).strip() or "no process output"
+            raise PreprocessingError(
+                f"DOCX preprocessing failed (exit {completed.returncode}): {detail[-2000:]}"
+            )
         if task.review_type.visual_policy.get("enabled"):
             self._understand_images(task, attempt)
         logger.info("preprocessing.completed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
@@ -105,18 +121,31 @@ cp -a "$WORK/extracted/rendered" "$ATTEMPT_DIR/evidence/rendered"
         work = self.write_root / task.task_id / attempt.attempt_id / "work"
         prompt = (work / "vision-prompt.txt").read_text(encoding="utf-8")
         rendered = work / "extracted" / "rendered"
-        raw_dir, facts_dir = work / "vision-responses", work / "vision-facts"
+        raw_dir = work / "vision-responses"
+        images = sorted(rendered.glob("*.png"))
+        if len(images) > MAX_VISION_IMAGES:
+            raise PreprocessingError(
+                f"Visual review has {len(images)} images; maximum is {MAX_VISION_IMAGES}. No model calls were made."
+            )
         raw_dir.mkdir(exist_ok=True)
-        facts_dir.mkdir(exist_ok=True)
-        schema = self.skill_root / "review-packs" / "technical-architecture" / "vision-facts.schema.json"
-        validator = self.skill_root / "scripts" / "validate_vision_response.py"
-        for image in rendered.glob("*.png"):
+
+        def understand(image: Path) -> None:
             raw = raw_dir / f"{image.stem}.raw.txt"
             try:
                 response, cached = self.vision_cache.get_or_create(image.read_bytes(), prompt, self.vision_adapter)
                 raw.write_text(response.raw_response, encoding="utf-8")
-                completed = subprocess.run(["python", str(validator), "--raw", str(raw), "--schema", str(schema), "--output", str(facts_dir / f"{image.stem}.json"), "--error-output", str(facts_dir / f"{image.stem}.error.txt")], text=True, capture_output=True, timeout=30)
-                logger.info("vision.completed task_id=%s image=%s cache_hit=%s valid=%s", task.task_id, image.stem, cached, completed.returncode == 0)
+                logger.info("vision.completed task_id=%s image=%s cache_hit=%s", task.task_id, image.stem, cached)
             except Exception as exc:
                 raw.write_text("图片理解失败\n", encoding="utf-8")
                 logger.warning("vision.failed task_id=%s image=%s error=%s", task.task_id, image.stem, exc)
+
+        logger.info(
+            "vision.batch_started task_id=%s images=%s max_workers=%s",
+            task.task_id,
+            len(images),
+            MAX_VISION_WORKERS,
+        )
+        with ThreadPoolExecutor(max_workers=MAX_VISION_WORKERS, thread_name_prefix="docguard-vision") as executor:
+            futures = [executor.submit(understand, image) for image in images]
+            for future in as_completed(futures):
+                future.result()
