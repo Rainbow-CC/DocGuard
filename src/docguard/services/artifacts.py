@@ -8,7 +8,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from docguard.domain.models import AgentBackend, AuditAttempt, AuditTask, EvidenceRef, Finding
+from docguard.domain.models import (
+    AgentBackend,
+    AgentRun,
+    AuditAttempt,
+    AuditTask,
+    EvidenceRef,
+    Finding,
+)
 
 
 logger = logging.getLogger("docguard.artifacts")
@@ -29,6 +36,11 @@ class AgentResult(BaseModel):
     review_type_id: str | None = None
     review_type_version: str | None = None
     core_contract_version: int | None = None
+    dimension: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    scope: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]*$")
+    producer_agent_id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    producer_agent_version: str
+    producer_model_ref: str
     findings: list[Finding]
 
 
@@ -73,18 +85,60 @@ class ArtifactStore:
         manifest_path = local_dir / "input-manifest.json"
         self._atomic_write_json(manifest_path, manifest)
         attempt.input_manifest_uri = f"file://{agent_dir / 'input-manifest.json'}"
-        attempt.result_uri = f"file://{agent_dir / 'findings.json'}"
+        findings_dir = local_dir / "findings"
+        findings_dir.mkdir()
+        attempt.result_uri = f"file://{agent_dir / 'findings'}"
+        attempt.agent_runs = [
+            AgentRun(
+                agent=agent,
+                result_uri=f"file://{agent_dir / 'findings' / f'{agent.artifact_stem}.findings.json'}",
+            )
+            for agent in task.review_type.resolved_agents()
+        ] if task.review_type else []
+        stems = [run.agent.artifact_stem for run in attempt.agent_runs]
+        if len(stems) != len(set(stems)):
+            raise ArtifactValidationError("Review type registers duplicate findings artifact names")
         logger.info(
-            "artifact.manifest_written task_id=%s attempt_id=%s manifest_path=%s result_path=%s",
+            "artifact.manifest_written task_id=%s attempt_id=%s manifest_path=%s findings_dir=%s",
             task.task_id,
             attempt.attempt_id,
             manifest_path,
-            attempt.result_uri,
+            findings_dir,
         )
         return attempt
 
+    def read_results(self, task: AuditTask, attempt: AuditAttempt) -> list[AgentResult]:
+        """Read every completed specialist artifact for an attempt.
+
+        Only final ``*.findings.json`` names are scanned. Agents write another
+        extension (normally ``.tmp``) and atomically rename only after their
+        local validation passes, so partial files are never candidates here.
+        """
+        findings_dir = self._local_dir(task.task_id, attempt.attempt_id) / "findings"
+        if not findings_dir.is_dir():
+            return []
+        expected = {run.agent.artifact_stem: run for run in attempt.agent_runs}
+        results: list[AgentResult] = []
+        for path in sorted(findings_dir.glob("*.findings.json")):
+            stem = path.name.removesuffix(".findings.json")
+            run = expected.get(stem)
+            if run is None:
+                raise ArtifactValidationError(f"Unexpected findings artifact: {path.name}")
+            results.append(self._read_result_file(task, attempt, run, path))
+        return results
+
     def read_result(self, task: AuditTask, attempt: AuditAttempt) -> AgentResult | None:
-        path = self._local_dir(task.task_id, attempt.attempt_id) / "findings.json"
+        """Compatibility accessor for callers expecting a single specialist result."""
+        results = self.read_results(task, attempt)
+        if not results:
+            return None
+        if len(results) != 1:
+            raise ArtifactValidationError("Attempt has multiple findings artifacts; use read_results")
+        return results[0]
+
+    def _read_result_file(
+        self, task: AuditTask, attempt: AuditAttempt, run: AgentRun, path: Path
+    ) -> AgentResult:
         if not path.is_file():
             logger.info(
                 "artifact.result_pending task_id=%s attempt_id=%s result_path=%s",
@@ -92,7 +146,6 @@ class ArtifactStore:
                 attempt.attempt_id,
                 path,
             )
-            return None
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -101,7 +154,7 @@ class ArtifactStore:
             result = AgentResult.model_validate(data)
         except Exception as exc:
             raise ArtifactValidationError(f"Invalid findings artifact: {exc}") from exc
-        self._validate_metadata(task, attempt, result)
+        self._validate_metadata(task, attempt, run, result)
         evidence = self.read_evidence(task, attempt)
         self._validate_evidence_refs(result.findings, evidence)
         for finding in result.findings:
@@ -110,9 +163,10 @@ class ArtifactStore:
                     "OpenClaw artifacts must declare agent_backend=openclaw"
                 )
         logger.info(
-            "artifact.result_validated task_id=%s attempt_id=%s findings=%s",
+            "artifact.result_validated task_id=%s attempt_id=%s agent_id=%s findings=%s",
             task.task_id,
             attempt.attempt_id,
+            run.agent.agent_id,
             len(result.findings),
         )
         return result
@@ -189,7 +243,7 @@ class ArtifactStore:
         return candidate if candidate.is_file() else None
 
     def _validate_metadata(
-        self, task: AuditTask, attempt: AuditAttempt, result: AgentResult
+        self, task: AuditTask, attempt: AuditAttempt, run: AgentRun, result: AgentResult
     ) -> None:
         if result.schema_version != "docguard-agent-result-v1":
             raise ArtifactValidationError(f"Unsupported result schema: {result.schema_version}")
@@ -207,6 +261,11 @@ class ArtifactStore:
             "core_contract_version": task.review_type.core_contract_version
             if task.review_type
             else 1,
+            "dimension": run.agent.dimension,
+            "scope": run.agent.scope,
+            "producer_agent_id": run.agent.agent_id,
+            "producer_agent_version": run.agent.version,
+            "producer_model_ref": run.agent.agent_model_ref,
         }
         actual = result.model_dump(include=set(expected))
         if actual != expected:

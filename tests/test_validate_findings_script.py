@@ -26,6 +26,15 @@ def _manifest() -> dict[str, object]:
             "review_type_id": "technical-architecture",
             "version": "1.0.0",
             "core_contract_version": 1,
+            "agents": [
+                {
+                    "agent_id": "content-reviewer",
+                    "version": "1.0.0",
+                    "dimension": "content",
+                    "scope": None,
+                    "agent_model_ref": "openclaw/audit-runtime",
+                }
+            ],
         },
     }
 
@@ -58,6 +67,11 @@ def _result(evidence_id: str = "table:35", quote: str = "数据中台 | 数管�
         "review_type_id": "technical-architecture",
         "review_type_version": "1.0.0",
         "core_contract_version": 1,
+        "dimension": "content",
+        "scope": None,
+        "producer_agent_id": "content-reviewer",
+        "producer_agent_version": "1.0.0",
+        "producer_model_ref": "openclaw/audit-runtime",
         "findings": [
             {
                 "finding_id": "fd_example",

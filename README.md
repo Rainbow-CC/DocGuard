@@ -95,7 +95,7 @@ DocGuard 不把证据当作报告中的装饰文本，而是把它作为审核�
 
 Skill 负责判断，程序负责接受与呈现。
 
-`finding-v1` 是平台和所有审核 Skill 之间的稳定边界。它统一定义了规则标识、分类、判定、严重性、置信度、问题描述、影响、修订建议、验收标准、根因键及证据引用等字段；Skill 只能按此结构原子交付 `findings.json`，不得直接生成最终 Markdown/PDF 报告，也不得私自扩展字段。
+`finding-v1` 是平台和所有审核 Skill 之间的稳定边界。它统一定义了规则标识、分类、判定、严重性、置信度、问题描述、影响、修订建议、验收标准、根因键及证据引用等字段；Skill 只能按此结构原子交付自己的 `findings/<dimension>[.<scope>].findings.json`，不得直接生成最终 Markdown/PDF 报告，也不得私自扩展字段。
 
 这份契约在两端同时落地，而不是只写在提示词里：
 
@@ -136,8 +136,8 @@ flowchart LR
 | Worker | 领取长任务、重试、限流、租约 | FastAPI `BackgroundTasks` 演示实现 | 独立 worker + Redis/RabbitMQ/云队列 |
 | 应用预处理 | 接受修订、DOCX/表格/图件提取、建立审计包、构建视觉提示词并逐图提取事实 | Windows 应用调用 WSL 工具链 | Linux worker + 对象存储 |
 | 审计 Skill | 基于应用交付的审计包、视觉原始响应和架构事实生成 findings | OpenClaw Agent | 受限运行时 + 独立审计包存储 |
-| OpenClaw 调度器 | 启动 artifact-delivered attempt 并记录 Gateway SSE | `OpenClawAgentGateway` | 队列 worker + 重试 |
-| 工件收集 | 读取并校验 `findings.json` | 共享 WSL 目录 | 对象存储事件/队列 |
+| OpenClaw 调度器 | 并行启动按维度注册的 artifact-delivered Agent 并记录各自 Gateway SSE | `OpenClawAgentGateway` | 队列 worker + 重试 |
+| 工件收集 | 扫描并校验 `findings/*.findings.json` | 共享 WSL 目录 | 对象存储事件/队列 |
 | 存储 | 任务元数据、状态、Finding 与报告 | SQLite `data/docguard.sqlite3` | PostgreSQL + S3/MinIO |
 | 报告 | Findings 渲染及下载 | Markdown | 固定模板 Markdown/PDF |
 
@@ -166,14 +166,16 @@ OpenClaw attempt 使用应用与 Agent 共享的结果根目录。应用侧通�
         │   ├── audit-context.md
         │   ├── audit-evidence.json
         │   └── vision-responses/
-        ├── findings.json
+        ├── findings/
+        │   ├── content.findings.json
+        │   └── architecture.findings.json
         └── evidence/
             ├── audit-evidence.json
             └── rendered/
                 └── *.png
 ```
 
-`input-manifest.json`、`work/`、`audit-evidence.json` 和 `rendered/` 均由应用预处理器交付；`findings.json` 是 Agent 最终交付的结构化结果。Agent 必须先写入同目录临时文件并校验成功，再通过原子重命名交付 `findings.json`。应用检测到该文件后，读取同一 attempt 下的 `evidence/audit-evidence.json`，校验 `evidence_refs` 是否引用真实证据，最后合并 Finding 并生成报告。
+`input-manifest.json`、`work/`、`audit-evidence.json` 和 `rendered/` 均由应用预处理器交付。审核类型注册一个或多个 Agent；每个 Agent 的 `dimension` 是稳定的报告分类，`scope` 是可选的子分类。Agent 只能写入自己的 `findings/<dimension>[.<scope>].findings.json`，先写不匹配扫描规则的临时文件（例如 `.tmp`），校验成功后再原子重命名。应用只扫描 `*.findings.json`，并基于文件 metadata 核对 task、attempt、输入哈希和注册 Agent 身份；随后校验证据引用、汇总 Finding 并按维度生成报告。未注册的完成文件会被拒绝，临时文件不会被读取。
 
 证据引用只能使用当前审计包中的 `block:<block_index>`、`table:<block_index>` 或 `image:<image_id>`。图片文件必须位于该 attempt 的 `evidence/rendered/` 目录内；应用不会把内部文件路径直接暴露给浏览器，而是通过证据接口生成受控图片 URL。完整交付约束见 [`doc-audit-integrate-skill/SKILL.md`](doc-audit-integrate-skill/SKILL.md)。
 

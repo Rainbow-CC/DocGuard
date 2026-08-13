@@ -7,7 +7,7 @@ from typing import Protocol
 
 import httpx
 
-from docguard.domain.models import AgentBackend, AuditAttempt, AuditProfile, AuditTask, Finding
+from docguard.domain.models import AgentBackend, AgentRun, AuditAttempt, AuditProfile, AuditTask, Finding
 
 
 logger = logging.getLogger("docguard.agents")
@@ -24,9 +24,9 @@ class GraphAuditGateway(Protocol):
 class OpenClawAttemptGateway(Protocol):
     """Dispatches an artifact-delivered OpenClaw audit attempt."""
 
-    def execute_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None: ...
+    def execute_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None: ...
 
-    def continue_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None: ...
+    def continue_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None: ...
 
 
 class StubAgentGateway:
@@ -48,11 +48,11 @@ class OpenClawAgentGateway:
         self.gateway_url = (gateway_url or os.getenv("OPENCLAW_GATEWAY_URL", "")).rstrip("/")
         self.api_token = api_token or os.getenv("OPENCLAW_API_TOKEN", "")
 
-    def execute_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None:
+    def execute_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None:
         """Hold the Gateway SSE request and return its response id when available.
 
-        This intentionally does not parse assistant text into findings.  The agent
-        must atomically deliver findings.json to the task's result directory.
+        This intentionally does not parse assistant text into findings. The agent
+        must atomically deliver its assigned findings artifact to the task directory.
         """
         if not self.gateway_url or not self.api_token:
             logger.error(
@@ -65,16 +65,23 @@ class OpenClawAgentGateway:
             )
             raise GatewayExecutionError("OPENCLAW_GATEWAY_URL and OPENCLAW_API_TOKEN must be configured")
 
-        return self._stream_attempt(task, attempt, self._prompt(task, attempt))
+        return self._stream_attempt(task, attempt, run, self._prompt(task, attempt, run))
 
-    def continue_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None:
+    def continue_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None:
         """Continue the task's existing Gateway conversation and collect its SSE."""
-        return self._stream_attempt(task, attempt, "当前任务若未完成审核，则继续审核，否则告诉我已完成", previous_response_id=attempt.gateway_response_id)
+        return self._stream_attempt(
+            task,
+            attempt,
+            run,
+            "当前任务若未完成审核，则继续审核，否则告诉我已完成",
+            previous_response_id=run.gateway_response_id,
+        )
 
     def _stream_attempt(
         self,
         task: AuditTask,
         attempt: AuditAttempt,
+        run: AgentRun,
         input_text: str,
         *,
         previous_response_id: str | None = None,
@@ -82,8 +89,8 @@ class OpenClawAgentGateway:
         if task.review_type is None:
             raise GatewayExecutionError("Task has no frozen review type definition")
         request: dict[str, object] = {
-            "model": task.review_type.agent_model_ref,
-            "user": f"docguard:task:{task.task_id}",
+            "model": run.agent.agent_model_ref,
+            "user": f"docguard:task:{task.task_id}:agent:{run.agent.agent_id}",
             "stream": True,
             "input": input_text,
         }
@@ -142,20 +149,24 @@ class OpenClawAgentGateway:
         return response_id
 
     @staticmethod
-    def _prompt(task: AuditTask, attempt: AuditAttempt) -> str:
+    def _prompt(task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str:
         if task.review_type is None:
             raise GatewayExecutionError("Task has no frozen review type definition")
         manifest_path = attempt.input_manifest_uri.removeprefix("file://")
-        result_path = attempt.result_uri.removeprefix("file://")
+        result_path = run.result_uri.removeprefix("file://")
         document_path = task.document.source_uri.removeprefix("file://")
         return "\n".join(
             [
-                f"执行 {task.review_type.skill_ref} skill。",
+                f"执行 {run.agent.skill_ref} skill。",
+                f"DOCGUARD_AGENT_ID={run.agent.agent_id}",
+                f"DOCGUARD_AGENT_VERSION={run.agent.version}",
+                f"DOCGUARD_DIMENSION={run.agent.dimension}",
+                f"DOCGUARD_SCOPE={run.agent.scope or ''}",
                 f"DOCGUARD_REVIEW_TYPE={task.review_type.review_type_id}",
                 f"DOCGUARD_REVIEW_TYPE_VERSION={task.review_type.version}",
                 f"DOCGUARD_CORE_CONTRACT_VERSION={task.review_type.core_contract_version}",
-                f"DOCGUARD_RULE_PACK={task.review_type.rule_pack_ref}",
-                f"DOCGUARD_RULE_PACK_VERSION={task.review_type.rule_pack_version}",
+                f"DOCGUARD_RULE_PACK={run.agent.rule_pack_ref}",
+                f"DOCGUARD_RULE_PACK_VERSION={run.agent.rule_pack_version}",
                 f"DOCGUARD_VISUAL_POLICY={json.dumps(task.review_type.visual_policy, ensure_ascii=False)}",
                 f"INPUT_DOCX={document_path}",
                 f"DOCGUARD_TASK_ID={task.task_id}",
@@ -167,7 +178,7 @@ class OpenClawAgentGateway:
                 "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
                 "只读取 manifest、DOCGUARD_WORK_DIR/audit-context.md、DOCGUARD_WORK_DIR/audit-evidence.json 和 DOCGUARD_WORK_DIR/vision-responses/；不得重新处理 DOCX、调用视觉模型或覆盖 evidence/。",
                 "不得输出最终 Markdown 审核报告。",
-                "必须先校验结果，再以同目录临时文件加原子重命名交付 findings.json。",
+                "只能写入 DOCGUARD_RESULT_FILE；必须先校验结果，再以同目录临时文件加原子重命名交付该文件。",
                 "聊天最终答复只确认工件已写入，不得在答复中输出 findings。",
             ]
         )

@@ -13,7 +13,7 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告
 
 - `DOCGUARD_TASK_ID`、`DOCGUARD_ATTEMPT_ID`：本次交付身份。
 - `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含任务身份、文档引用、Profile 与审核类型快照。
-- `DOCGUARD_RESULT_FILE`：唯一允许交付的最终文件，固定以 `findings.json` 结尾。
+- `DOCGUARD_RESULT_FILE`：唯一允许交付的最终文件，固定以 `.findings.json` 结尾，例如 `findings/architecture.findings.json`。
 - `DOCGUARD_EVIDENCE_DIR`：应用已交付的只读证据包目录。
 - `DOCGUARD_WORK_DIR`：应用已交付的只读审计上下文、渲染图件和视觉结果目录。
 
@@ -29,13 +29,13 @@ DocGuard 应用负责在启动 Agent 前，在同一 attempt 的 Linux 工作目
 - `work/extracted/rendered/` 的原始渲染 PNG；
 - `work/vision-prompt.txt`、`work/vision-responses/<candidate-id>.raw.txt`；
 
-Agent 必须直接使用这些产物：禁止重新运行提取、构建提示词、调用视觉模型、修改 `DOCGUARD_WORK_DIR`，或覆盖应用已写入的 `$DOCGUARD_EVIDENCE_DIR`。`.raw.txt` 是唯一的视觉事实反馈和可追溯原始响应。Agent 只写临时 findings 和最终 `findings.json`。
+Agent 必须直接使用这些产物：禁止重新运行提取、构建提示词、调用视觉模型、修改 `DOCGUARD_WORK_DIR`，或覆盖应用已写入的 `$DOCGUARD_EVIDENCE_DIR`。`.raw.txt` 是唯一的视觉事实反馈和可追溯原始响应。Agent 只写临时 findings 和自己的最终 `*.findings.json`。
 
 ## 固定工作流
 
 1. 读取应用已交付的审计包和视觉结果。
 
-   验证 `DOCGUARD_AUDIT_MANIFEST`、`DOCGUARD_RESULT_FILE` 和 `DOCGUARD_WORK_DIR` 存在且非空；`DOCGUARD_RESULT_FILE` 必须以 `findings.json` 结尾且尚未存在。完整读取一次 `$DOCGUARD_WORK_DIR/audit-context.md`，需要机器可读证据时仅读取 `$DOCGUARD_WORK_DIR/audit-evidence.json`。`document-structure.json`、原始 DOCX 和图像渲染工具均不属于 Agent 的读取或执行范围。
+   验证 `DOCGUARD_AUDIT_MANIFEST`、`DOCGUARD_RESULT_FILE` 和 `DOCGUARD_WORK_DIR` 存在且非空；`DOCGUARD_RESULT_FILE` 必须以 `.findings.json` 结尾且尚未存在。完整读取一次 `$DOCGUARD_WORK_DIR/audit-context.md`，需要机器可读证据时仅读取 `$DOCGUARD_WORK_DIR/audit-evidence.json`。`document-structure.json`、原始 DOCX 和图像渲染工具均不属于 Agent 的读取或执行范围。
 
    对每张已完成视觉理解的图片，读取对应的 `$DOCGUARD_WORK_DIR/vision-responses/<candidate-id>.raw.txt`。视觉响应失败时记录其局限性，但继续完成全文审核。
 
@@ -66,11 +66,11 @@ Agent 必须直接使用这些产物：禁止重新运行提取、构建提示�
 
    `$DOCGUARD_EVIDENCE_DIR/audit-evidence.json` 和 `rendered/` 已由应用写入且只读。只生成临时 findings、执行校验并原子重命名；不得覆盖证据包。
 
-   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；不得伪造或猜测它们。`evidence_refs` 只能引用应用已交付证据包中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
+   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；并根据 `DOCGUARD_DIMENSION`、`DOCGUARD_SCOPE`、`DOCGUARD_AGENT_ID`、`DOCGUARD_AGENT_VERSION` 和模型引用填写本 Agent metadata，不得伪造或猜测它们。`evidence_refs` 只能引用应用已交付证据包中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
 
    ```bash
    BASE="{baseDir}"
-   PARTIAL_FILE="$(dirname "$DOCGUARD_RESULT_FILE")/findings.partial.json"
+   PARTIAL_FILE="${DOCGUARD_RESULT_FILE}.tmp"
    # 将完整 docguard-agent-result-v1 JSON 写入 "$PARTIAL_FILE"。
    python3 "$BASE/scripts/validate_findings.py" \
      --manifest "$DOCGUARD_AUDIT_MANIFEST" \
@@ -80,7 +80,7 @@ Agent 必须直接使用这些产物：禁止重新运行提取、构建提示�
    test -s "$DOCGUARD_RESULT_FILE"
    ```
 
-   预检会核对证据 ID、类型、原文摘录、表格 selector 和图片 region。预检失败时必须修改 `$PARTIAL_FILE` 并重新运行，禁止绕过预检或继续执行 `mv`。禁止直接写 `findings.json`，禁止交付半写入文件，禁止以聊天答复、Markdown、JSON 片段或截图替代该文件。完成后聊天最终答复只能简短确认 `findings.json` 已写入；不得在答复中重复 findings。
+   预检会核对证据 ID、类型、原文摘录、表格 selector 和图片 region。预检失败时必须修改 `$PARTIAL_FILE` 并重新运行，禁止绕过预检或继续执行 `mv`。禁止直接写最终 `*.findings.json`，禁止交付半写入文件，禁止以聊天答复、Markdown、JSON 片段或截图替代该文件。完成后聊天最终答复只能简短确认自己的结果文件已写入；不得在答复中重复 findings。
 
 ## 资源
 

@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 
 from fastapi.testclient import TestClient
 
-from docguard.domain.models import AgentBackend, AuditTask, InputDocument
+from docguard.domain.models import AgentBackend, AuditAgentDefinition, AuditTask, InputDocument
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
 from docguard.services.profiles import DEFAULT_TECHNICAL_REVIEW_TYPE, ProfileRegistry
 from docguard.services.store import InMemoryTaskStore
@@ -51,7 +51,8 @@ def _bundle() -> dict[str, object]:
     }
 
 
-def _result(task: AuditTask, attempt_id: str, quote: str = "故障恢复<=24小时；") -> dict[str, object]:
+def _result(task: AuditTask, attempt_id: str, quote: str = "故障恢复<=24小时；", run=None) -> dict[str, object]:
+    agent = run.agent if run else task.review_type.resolved_agents()[0]
     return {
         "schema_version": "docguard-agent-result-v1",
         "task_id": task.task_id,
@@ -63,6 +64,11 @@ def _result(task: AuditTask, attempt_id: str, quote: str = "故障恢复<=24小�
         "review_type_id": task.review_type.review_type_id,
         "review_type_version": task.review_type.version,
         "core_contract_version": task.review_type.core_contract_version,
+        "dimension": agent.dimension,
+        "scope": agent.scope,
+        "producer_agent_id": agent.agent_id,
+        "producer_agent_version": agent.version,
+        "producer_model_ref": agent.agent_model_ref,
         "findings": [
             {
                 "finding_id": "fd_example",
@@ -116,7 +122,7 @@ def test_artifact_validates_structured_evidence_and_projects_safe_view(tmp_path:
     attempt = artifacts.prepare(task)
     task.attempts.append(attempt)
     _write_bundle(tmp_path, task, attempt.attempt_id)
-    result_path = tmp_path / task.task_id / attempt.attempt_id / "findings.json"
+    result_path = tmp_path / task.task_id / attempt.attempt_id / "findings" / "content.findings.json"
     result_path.write_text(json.dumps(_result(task, attempt.attempt_id), ensure_ascii=False), encoding="utf-8")
 
     result = artifacts.read_result(task, attempt)
@@ -134,7 +140,7 @@ def test_artifact_rejects_quote_not_in_evidence(tmp_path: Path) -> None:
     task = _task()
     attempt = artifacts.prepare(task)
     _write_bundle(tmp_path, task, attempt.attempt_id)
-    result_path = tmp_path / task.task_id / attempt.attempt_id / "findings.json"
+    result_path = tmp_path / task.task_id / attempt.attempt_id / "findings" / "content.findings.json"
     result_path.write_text(
         json.dumps(_result(task, attempt.attempt_id, quote="不存在的原文"), ensure_ascii=False), encoding="utf-8"
     )
@@ -145,6 +151,34 @@ def test_artifact_rejects_quote_not_in_evidence(tmp_path: Path) -> None:
         assert "Evidence quote is not present" in str(exc)
     else:
         raise AssertionError("Expected invalid quote to be rejected")
+
+
+def test_artifact_scans_multiple_final_files_and_ignores_temporary_files(tmp_path: Path) -> None:
+    artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
+    task = _task()
+    architecture = AuditAgentDefinition(
+        agent_id="architecture-advisor",
+        version="1.0.0",
+        dimension="architecture",
+        agent_model_ref="openclaw/architect",
+        skill_ref="architecture-advisor",
+        rule_pack_ref="technical-architecture/review-rules.md",
+        rule_pack_version="1.0.0",
+    )
+    task.review_type.agents.append(architecture)
+    attempt = artifacts.prepare(task)
+    _write_bundle(tmp_path, task, attempt.attempt_id)
+    findings_dir = tmp_path / task.task_id / attempt.attempt_id / "findings"
+    for run in attempt.agent_runs:
+        (findings_dir / f"{run.agent.artifact_stem}.findings.json").write_text(
+            json.dumps(_result(task, attempt.attempt_id, run=run), ensure_ascii=False), encoding="utf-8"
+        )
+    (findings_dir / "security.findings.json.tmp").write_text("partial", encoding="utf-8")
+
+    results = artifacts.read_results(task, attempt)
+
+    assert [result.dimension for result in results] == ["architecture", "content"]
+    assert sum(len(result.findings) for result in results) == 2
 
 
 def test_evidence_api_returns_bundle_and_image(tmp_path: Path, monkeypatch) -> None:

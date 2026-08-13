@@ -38,6 +38,14 @@ class AgentBackend(StrEnum):
     LANGCHAIN = "langchain"
 
 
+class AgentRunStatus(StrEnum):
+    PREPARED = "prepared"
+    RUNNING = "running"
+    COLLECTING = "collecting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class Severity(StrEnum):
     CRITICAL = "重大"
     HIGH = "一般"
@@ -188,6 +196,42 @@ class AuditProfile(BaseModel):
     prompt_versions: dict[str, int]
 
 
+class AuditAgentDefinition(BaseModel):
+    """A versioned specialist registered under one review type.
+
+    Example::
+
+        AuditAgentDefinition(
+            agent_id="architecture-advisor",
+            version="1.0.0",
+            dimension="architecture",       # Stable report category.
+            scope="deployment",              # Optional category subdivision.
+            agent_model_ref="openclaw/architect",
+            skill_ref="docx-architecture-advisor",
+            rule_pack_ref="technical-architecture/architecture-rules.md",
+            rule_pack_version="1.0.0",
+        )
+
+    This agent must deliver ``findings/architecture.deployment.findings.json``.
+    ``dimension`` and ``scope`` describe the result, not the particular model
+    or implementation, so the report remains stable when an agent is replaced.
+    """
+
+    agent_id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    version: str
+    dimension: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    scope: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]*$")
+    agent_backend: AgentBackend = AgentBackend.OPENCLAW
+    agent_model_ref: str
+    skill_ref: str
+    rule_pack_ref: str
+    rule_pack_version: str
+
+    @property
+    def artifact_stem(self) -> str:
+        return ".".join(part for part in (self.dimension, self.scope) if part)
+
+
 class ReviewTypeDefinition(BaseModel):
     """A versioned, platform-owned definition of one report review product."""
 
@@ -203,6 +247,25 @@ class ReviewTypeDefinition(BaseModel):
     rule_pack_version: str
     visual_policy: dict[str, object] = Field(default_factory=dict)
     profile: AuditProfile
+    agents: list[AuditAgentDefinition] = Field(default_factory=list)
+
+    def resolved_agents(self) -> list[AuditAgentDefinition]:
+        """Return registered specialists, retaining legacy single-agent definitions."""
+        if self.agents:
+            return list(self.agents)
+        # default
+        return [
+            AuditAgentDefinition(
+                agent_id="default",
+                version=self.version,
+                dimension="content",
+                agent_backend=self.agent_backend,
+                agent_model_ref=self.agent_model_ref,
+                skill_ref=self.skill_ref,
+                rule_pack_ref=self.rule_pack_ref,
+                rule_pack_version=self.rule_pack_version,
+            )
+        ]
 
 
 class InputDocument(BaseModel):
@@ -247,6 +310,17 @@ class AuditAttempt(BaseModel):
     input_manifest_uri: str
     result_uri: str
     input_sha256: str
+    gateway_response_id: str | None = None
+    error: str | None = None
+    agent_runs: list[AgentRun] = Field(default_factory=list)
+
+
+class AgentRun(BaseModel):
+    """One specialist execution inside an independently recoverable attempt."""
+
+    agent: AuditAgentDefinition
+    result_uri: str
+    status: AgentRunStatus = AgentRunStatus.PREPARED
     gateway_response_id: str | None = None
     error: str | None = None
 

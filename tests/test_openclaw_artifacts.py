@@ -11,7 +11,7 @@ from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
 
 
-def _result(task, attempt) -> dict[str, object]:
+def _result(task, attempt, run) -> dict[str, object]:
     return {
         "schema_version": "docguard-agent-result-v1",
         "task_id": task.task_id,
@@ -23,6 +23,11 @@ def _result(task, attempt) -> dict[str, object]:
         "review_type_id": task.review_type.review_type_id,
         "review_type_version": task.review_type.version,
         "core_contract_version": task.review_type.core_contract_version,
+        "dimension": run.agent.dimension,
+        "scope": run.agent.scope,
+        "producer_agent_id": run.agent.agent_id,
+        "producer_agent_version": run.agent.version,
+        "producer_model_ref": run.agent.agent_model_ref,
         "findings": [
             {
                 "finding_id": "fd_example",
@@ -53,18 +58,18 @@ class CompletingGateway:
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    def execute_attempt(self, task, attempt) -> str:
-        target = self.root / task.task_id / attempt.attempt_id / "findings.json"
-        target.write_text(json.dumps(_result(task, attempt), ensure_ascii=False), encoding="utf-8")
+    def execute_attempt(self, task, attempt, run) -> str:
+        target = self.root / task.task_id / attempt.attempt_id / "findings" / f"{run.agent.artifact_stem}.findings.json"
+        target.write_text(json.dumps(_result(task, attempt, run), ensure_ascii=False), encoding="utf-8")
         return "resp_example"
 
 
 class DisconnectingGateway:
-    def execute_attempt(self, task, attempt) -> str:
+    def execute_attempt(self, task, attempt, run) -> str:
         raise GatewayExecutionError("OpenClaw transport failure: connection reset")
 
-    def continue_attempt(self, task, attempt) -> str:
-        assert attempt.gateway_response_id is None
+    def continue_attempt(self, task, attempt, run) -> str:
+        assert run.gateway_response_id is None
         raise GatewayExecutionError("OpenClaw transport failure: connection reset")
 
 
@@ -73,13 +78,13 @@ class ContinuingGateway:
         self.root = root
         self.continued = False
 
-    def execute_attempt(self, task, attempt) -> str:
+    def execute_attempt(self, task, attempt, run) -> str:
         raise GatewayExecutionError("OpenClaw transport failure: connection reset")
 
-    def continue_attempt(self, task, attempt) -> str:
+    def continue_attempt(self, task, attempt, run) -> str:
         self.continued = True
-        target = self.root / task.task_id / attempt.attempt_id / "findings.json"
-        target.write_text(json.dumps(_result(task, attempt), ensure_ascii=False), encoding="utf-8")
+        target = self.root / task.task_id / attempt.attempt_id / "findings" / f"{run.agent.artifact_stem}.findings.json"
+        target.write_text(json.dumps(_result(task, attempt, run), ensure_ascii=False), encoding="utf-8")
         return "resp_continued"
 
 

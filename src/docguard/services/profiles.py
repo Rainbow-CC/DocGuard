@@ -4,7 +4,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from docguard.domain.models import AgentBackend, AuditProfile, ReviewTypeDefinition
+from docguard.domain.models import AgentBackend, AuditAgentDefinition, AuditProfile, ReviewTypeDefinition
 
 
 DEFAULT_TECHNICAL_PROFILE = AuditProfile(
@@ -29,11 +29,23 @@ DEFAULT_TECHNICAL_REVIEW_TYPE = ReviewTypeDefinition(
     rule_pack_version="1.0.0",
     visual_policy={"enabled": True, "policy_ref": "technical-architecture/visual-policy.yaml"},
     profile=DEFAULT_TECHNICAL_PROFILE,
+    agents=[
+        AuditAgentDefinition(
+            agent_id="content-reviewer",
+            version="1.0.0",
+            dimension="content",
+            agent_backend=AgentBackend.OPENCLAW,
+            agent_model_ref="openclaw/audit-runtime",
+            skill_ref="docx-tech-architecture-audit",
+            rule_pack_ref="technical-architecture/review-rules.md",
+            rule_pack_version="1.0.0",
+        )
+    ],
 )
 
 
 class ReviewTypeRegistry:
-    """Versioned review type metadata loaded from the platform database at startup."""
+    """Versioned review type metadata loaded from the platform database(table: review_type_definitions) at startup."""
 
     def __init__(self, database_path: Path | str) -> None:
         self.database_path = Path(database_path)

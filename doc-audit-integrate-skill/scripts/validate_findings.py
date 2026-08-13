@@ -20,6 +20,11 @@ TOP_LEVEL = {
     "review_type_id",
     "review_type_version",
     "core_contract_version",
+    "dimension",
+    "scope",
+    "producer_agent_id",
+    "producer_agent_version",
+    "producer_model_ref",
     "findings",
 }
 FINDING_FIELDS = {
@@ -186,6 +191,40 @@ def main() -> int:
     }
     if {key: result[key] for key in expected} != expected:
         raise ValueError("result metadata does not match manifest")
+    agents = review_type.get("agents", [])
+    if not isinstance(agents, list):
+        raise ValueError("review type agents must be an array")
+    if not agents:
+        # Compatibility with review-type snapshots created before specialists
+        # were registered explicitly; mirrors ReviewTypeDefinition.resolved_agents.
+        agents = [
+            {
+                "agent_id": "default",
+                "version": review_type.get("version"),
+                "dimension": "content",
+                "scope": None,
+                "agent_model_ref": review_type.get("agent_model_ref"),
+            }
+        ]
+    agent = next(
+        (
+            item
+            for item in agents
+            if isinstance(item, dict) and item.get("agent_id") == result["producer_agent_id"]
+        ),
+        None,
+    )
+    if agent is None:
+        raise ValueError("result producer_agent_id is not registered for this review type")
+    expected_producer = {
+        "dimension": agent.get("dimension"),
+        "scope": agent.get("scope"),
+        "producer_agent_id": agent.get("agent_id"),
+        "producer_agent_version": agent.get("version"),
+        "producer_model_ref": agent.get("agent_model_ref"),
+    }
+    if {key: result[key] for key in expected_producer} != expected_producer:
+        raise ValueError("result producer metadata does not match the registered agent")
     if not isinstance(result["findings"], list):
         raise ValueError("findings must be an array")
     for index, raw in enumerate(result["findings"]):

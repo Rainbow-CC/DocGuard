@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from docguard.adapters.agents import (
@@ -11,6 +12,8 @@ from docguard.adapters.agents import (
 )
 from docguard.domain.models import (
     AgentBackend,
+    AgentRun,
+    AgentRunStatus,
     AttemptStatus,
     AuditAttempt,
     AuditTask,
@@ -95,7 +98,7 @@ class AuditTaskService:
             return task
         attempt = self._attempt(task, attempt_id)
         try:
-            result = self.artifacts.read_result(task, attempt)
+            results = self.artifacts.read_results(task, attempt)
         except ArtifactValidationError as exc:
             logger.exception(
                 "task.collect.invalid_artifact task_id=%s attempt_id=%s",
@@ -104,7 +107,16 @@ class AuditTaskService:
             )
             self._set_attempt_status(attempt, AttemptStatus.FAILED, str(exc))
             return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
-        if result is None:
+        if len(results) < len(attempt.agent_runs):
+            completed_stems = {
+                f"{result.dimension}.{result.scope}" if result.scope else result.dimension
+                for result in results
+            }
+            for run in attempt.agent_runs:
+                if run.agent.artifact_stem in completed_stems:
+                    self._set_agent_run_status(run, AgentRunStatus.COMPLETED)
+                elif run.status is not AgentRunStatus.FAILED:
+                    self._set_agent_run_status(run, AgentRunStatus.COLLECTING)
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
             logger.info(
                 "task.collect.waiting_for_artifact task_id=%s attempt_id=%s",
@@ -115,9 +127,16 @@ class AuditTaskService:
 
         # Findings remain atomic; root_cause_key is explanatory metadata only.
         # task.findings = list(merged.values())
-        task.findings = result.findings
+        task.findings = [finding for result in results for finding in result.findings]
+        findings_by_dimension: dict[str, list] = {}
+        for result in results:
+            label = result.dimension if result.scope is None else f"{result.dimension} / {result.scope}"
+            findings_by_dimension[label] = result.findings
         task.report_markdown = render_markdown(
-            task.profile, task.findings, self.artifacts.read_evidence(task, attempt)
+            task.profile,
+            task.findings,
+            self.artifacts.read_evidence(task, attempt),
+            findings_by_dimension,
         )
         self._set_attempt_status(attempt, AttemptStatus.COMPLETED, None)
         completed = self.store.update(task, status=TaskStatus.COMPLETED)
@@ -150,9 +169,14 @@ class AuditTaskService:
         self.store.update(task, status=TaskStatus.RUNNING, error=None)
         logger.info("task.openclaw.continue_started task_id=%s attempt_id=%s", task_id, attempt.attempt_id)
         try:
-            response_id = self.openclaw_gateway.continue_attempt(task, attempt)
-            if response_id:
-                attempt.gateway_response_id = response_id
+            for run in attempt.agent_runs:
+                if run.status is AgentRunStatus.COMPLETED:
+                    continue
+                response_id = self.openclaw_gateway.continue_attempt(task, attempt, run)
+                if response_id:
+                    run.gateway_response_id = response_id
+                    attempt.gateway_response_id = attempt.gateway_response_id or response_id
+                self._set_agent_run_status(run, AgentRunStatus.COLLECTING)
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
         except GatewayExecutionError as exc:
             # Keep the task actionable: another continuation may still reach the agent.
@@ -179,7 +203,7 @@ class AuditTaskService:
             logger.exception("task.preprocessing.failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
             return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
         try:
-            attempt.gateway_response_id = self.openclaw_gateway.execute_attempt(task, attempt)
+            self._dispatch_agent_runs(task, attempt)
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
             logger.info(
                 "task.openclaw.gateway_finished task_id=%s attempt_id=%s response_id=%s",
@@ -209,6 +233,47 @@ class AuditTaskService:
         if error is not _UNSET:
             attempt.error = error
         attempt.updated_at = datetime.now().astimezone()
+
+    @staticmethod
+    def _set_agent_run_status(
+        run: AgentRun, status: AgentRunStatus, error: str | None | object = _UNSET
+    ) -> None:
+        run.status = status
+        if error is not _UNSET:
+            run.error = error
+
+    def _dispatch_agent_runs(self, task: AuditTask, attempt: AuditAttempt) -> None:
+        """Start independent specialists concurrently; collection remains artifact-based."""
+        if not attempt.agent_runs:
+            raise GatewayExecutionError("Review type has no registered audit agents")
+
+        def dispatch(run: AgentRun) -> tuple[AgentRun, str | None, Exception | None]:
+            self._set_agent_run_status(run, AgentRunStatus.RUNNING)
+            try:
+                return run, self.openclaw_gateway.execute_attempt(task, attempt, run), None
+            except Exception as exc:  # Gateway failures are reconciled through durable artifacts.
+                return run, None, exc
+
+        with ThreadPoolExecutor(max_workers=len(attempt.agent_runs), thread_name_prefix="docguard-agent") as executor:
+            futures = [executor.submit(dispatch, run) for run in attempt.agent_runs]
+            for future in as_completed(futures):
+                run, response_id, error = future.result()
+                if response_id:
+                    run.gateway_response_id = response_id
+                    attempt.gateway_response_id = attempt.gateway_response_id or response_id
+                if error:
+                    self._set_agent_run_status(run, AgentRunStatus.COLLECTING, str(error))
+                    logger.warning(
+                        "task.openclaw.agent_gateway_error task_id=%s attempt_id=%s agent_id=%s error=%s",
+                        task.task_id,
+                        attempt.attempt_id,
+                        run.agent.agent_id,
+                        error,
+                    )
+                else:
+                    self._set_agent_run_status(run, AgentRunStatus.COLLECTING)
+        errors = [run.error for run in attempt.agent_runs if run.error]
+        attempt.error = "; ".join(errors) if errors else None
 
     @staticmethod
     def _attempt(task: AuditTask, attempt_id: str | None) -> AuditAttempt:

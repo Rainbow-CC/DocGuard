@@ -4,7 +4,10 @@ from docguard.domain.models import AuditProfile, EvidenceRef, Finding
 
 
 def render_markdown(
-    profile: AuditProfile, findings: list[Finding], evidence: dict[str, Any] | None = None
+    profile: AuditProfile,
+    findings: list[Finding],
+    evidence: dict[str, Any] | None = None,
+    findings_by_dimension: dict[str, list[Finding]] | None = None,
 ) -> str:
     """Deterministic report renderer. Agents never create the final report."""
     lines = [
@@ -19,26 +22,32 @@ def render_markdown(
     ]
     if not findings:
         lines.append("未发现可验证的问题。")
-    for finding in findings:
-        lines.extend(
-            [
-                f"### {finding.title}",
-                "",
-                f"- 编号：`{finding.finding_id}`",
-                f"- 严重级别：{finding.severity}",
-                f"- 规则：`{finding.rule_id}`",
-                "- 核查依据：",
-                *(
-                    [f"  - {_display_evidence(ref, evidence)}" for ref in finding.evidence_refs]
-                    or ["  - 未提供可展示的核查依据。"]
-                ),
-                f"- 判断：{finding.claim}",
-                f"- 建议：{finding.recommendation}",
-                f"- 完成标准：{finding.acceptance_criteria}",
-                "",
-            ]
-        )
+    groups = findings_by_dimension or {"综合": findings}
+    for dimension, group in groups.items():
+        if findings_by_dimension:
+            lines.extend([f"## {dimension}", ""])
+        for finding in group:
+            lines.extend(_render_finding(finding, evidence))
     return "\n".join(lines)
+
+
+def _render_finding(finding: Finding, evidence: dict[str, Any] | None) -> list[str]:
+    return [
+        f"### {finding.title}",
+        "",
+        f"- 编号：`{finding.finding_id}`",
+        f"- 严重级别：{finding.severity}",
+        f"- 规则：`{finding.rule_id}`",
+        "- 核查依据：",
+        *(
+            [f"  - {_display_evidence(ref, evidence)}" for ref in finding.evidence_refs]
+            or ["  - 未提供可展示的核查依据。"]
+        ),
+        f"- 判断：{finding.claim}",
+        f"- 建议：{finding.recommendation}",
+        f"- 完成标准：{finding.acceptance_criteria}",
+        "",
+    ]
 
 
 def _display_evidence(ref: EvidenceRef, evidence: dict[str, Any] | None) -> str:
