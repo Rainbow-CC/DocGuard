@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from pathlib import Path, PurePosixPath
 
 from docguard.domain.models import AgentBackend, AuditTask
+from docguard.settings import Settings
 from docguard.services.artifacts import ArtifactStore
 
 
@@ -21,8 +21,9 @@ class OpenClawActionChainExporter:
 
     def __init__(self, artifacts: ArtifactStore, *, enabled: bool | None = None) -> None:
         self.artifacts = artifacts
-        self.enabled = enabled if enabled is not None else _enabled_from_environment()
-        self.wsl_distribution = os.getenv("DOCGUARD_WSL_DISTRIBUTION", "").strip()
+        settings = Settings.from_environment()
+        self.enabled = enabled if enabled is not None else settings.action_chain_export_enabled
+        self.wsl_distribution = settings.wsl_distribution or ""
         self.tools_root = Path(__file__).resolve().parents[3] / "tools"
 
     def download_path(self, task: AuditTask) -> Path:
@@ -87,12 +88,3 @@ class OpenClawActionChainExporter:
             raise ActionChainUnavailableError(f"无法导出 OpenClaw 行动链：{detail}") from exc
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ActionChainUnavailableError(f"无法导出 OpenClaw 行动链：{exc}") from exc
-
-
-def _enabled_from_environment() -> bool:
-    return os.getenv("DOCGUARD_ACTION_CHAIN_EXPORT_ENABLED", "false").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Protocol
 
 import httpx
+
+from docguard.settings import Settings
 
 from docguard.domain.models import AgentBackend, AgentRun, AuditAttempt, AuditProfile, AuditTask, Finding
 
@@ -45,8 +46,9 @@ class OpenClawAgentGateway:
     """Dispatches an audit skill through OpenResponses; results arrive as an artifact."""
 
     def __init__(self, gateway_url: str | None = None, api_token: str | None = None) -> None:
-        self.gateway_url = (gateway_url or os.getenv("OPENCLAW_GATEWAY_URL", "")).rstrip("/")
-        self.api_token = api_token or os.getenv("OPENCLAW_API_TOKEN", "")
+        settings = Settings.from_environment()
+        self.gateway_url = (gateway_url or settings.openclaw_gateway_url).rstrip("/")
+        self.api_token = api_token or settings.openclaw_api_token
 
     def execute_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None:
         """Hold the Gateway SSE request and return its response id when available.

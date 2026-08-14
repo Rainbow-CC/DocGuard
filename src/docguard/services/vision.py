@@ -4,12 +4,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
+
+from docguard.settings import Settings
 
 
 @dataclass(frozen=True)
@@ -32,9 +33,10 @@ class QwenVisionAdapter:
     adapter_id = "qwen-openai-compatible"
 
     def __init__(self, *, api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> None:
-        self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
-        self.base_url = base_url or os.getenv("DOCGUARD_QWEN_BASE_URL", "https://llm-qk9l4nr6p8kz0huk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1")
-        self.model = model or os.getenv("DOCGUARD_QWEN_VISION_MODEL", "qwen3.7-flash")
+        settings = Settings.from_environment()
+        self.api_key = api_key or settings.qwen_api_key
+        self.base_url = base_url or settings.qwen_base_url
+        self.model = model or settings.qwen_vision_model
 
     def describe(self, image: bytes, prompt: str, *, media_type: str = "image/png") -> VisionResponse:
         if not self.api_key:
@@ -75,7 +77,7 @@ class VisionResponseCache:
 
     @classmethod
     def from_environment(cls) -> "VisionResponseCache":
-        return cls(os.getenv("DOCGUARD_DATABASE_PATH", "data/docguard.sqlite3"))
+        return cls(Settings.from_environment().database_path)
 
     def get_or_create(self, image: bytes, prompt: str, adapter: VisionAdapter, *, media_type: str = "image/png") -> tuple[VisionResponse, bool]:
         image_sha256 = hashlib.sha256(image).hexdigest()

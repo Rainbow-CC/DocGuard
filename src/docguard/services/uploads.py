@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -10,12 +9,12 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 
+from docguard.settings import Settings
+
 
 logger = logging.getLogger("docguard.uploads")
 
 
-DEFAULT_WRITE_ROOT = r"\\wsl.localhost\Ubuntu\home\ubuntu\docguard-inbox"
-DEFAULT_AGENT_ROOT = "/home/ubuntu/docguard-inbox"
 DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 _CHUNK_SIZE = 1024 * 1024
 _AGENT_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
@@ -64,14 +63,8 @@ class UploadStorage:
 
     @classmethod
     def from_environment(cls) -> UploadStorage:
-        max_upload_bytes = int(
-            os.getenv("DOCGUARD_UPLOAD_MAX_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))
-        )
-        return cls(
-            write_root=os.getenv("DOCGUARD_UPLOAD_WRITE_ROOT", DEFAULT_WRITE_ROOT),
-            agent_root=os.getenv("DOCGUARD_UPLOAD_AGENT_ROOT", DEFAULT_AGENT_ROOT),
-            max_upload_bytes=max_upload_bytes,
-        )
+        settings = Settings.from_environment()
+        return cls(settings.upload_write_root, settings.upload_agent_root, settings.upload_max_bytes)
 
     async def store_docx(self, agent_id: str, upload: UploadFile) -> StoredUpload:
         self._validate_agent_id(agent_id)

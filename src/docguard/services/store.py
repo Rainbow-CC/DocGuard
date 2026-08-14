@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
+
+from docguard.settings import Settings
 
 from docguard.domain.models import AuditTask, TaskStatus
 
@@ -51,8 +52,6 @@ class InMemoryTaskStore:
 class SQLiteTaskStore:
     """Durable local task store backed by the Python standard-library SQLite driver."""
 
-    DEFAULT_DATABASE_PATH = Path(__file__).resolve().parents[3] / "data" / "docguard.sqlite3"
-
     def __init__(self, database_path: Path | str) -> None:
         self.database_path = Path(database_path)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,7 +59,7 @@ class SQLiteTaskStore:
 
     @classmethod
     def from_environment(cls) -> SQLiteTaskStore:
-        return cls(os.getenv("DOCGUARD_DATABASE_PATH", str(cls.DEFAULT_DATABASE_PATH)))
+        return cls(Settings.from_environment().database_path)
 
     def create(self, task: AuditTask) -> AuditTask:
         payload = task.model_dump_json()

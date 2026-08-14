@@ -7,7 +7,6 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Requ
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from dotenv import load_dotenv
 
 from docguard.domain.models import (
     AgentBackend,
@@ -17,6 +16,7 @@ from docguard.domain.models import (
     UploadDocumentResponse,
 )
 from docguard.logging_config import configure_logging
+from docguard.settings import Settings
 from docguard.services.action_chains import ActionChainUnavailableError, OpenClawActionChainExporter
 from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.store import SQLiteTaskStore
@@ -24,16 +24,18 @@ from docguard.services.tasks import AuditTaskService
 from docguard.services.uploads import UploadStorage, UploadTooLargeError, UploadValidationError
 
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env")
-configure_logging()
+settings = Settings.from_environment()
+configure_logging(settings)
 logger = logging.getLogger("docguard.api")
 
-store = SQLiteTaskStore.from_environment()
+store = SQLiteTaskStore(settings.database_path)
 review_types = ReviewTypeRegistry(store.database_path)
-service = AuditTaskService(store, review_types)
+service = AuditTaskService(store, review_types, settings=settings)
 action_chain_exporter = OpenClawActionChainExporter(service.artifacts)
 app = FastAPI(title="DocGuard", version="0.1.0")
-app.state.upload_storage = UploadStorage.from_environment()
+app.state.upload_storage = UploadStorage(
+    settings.upload_write_root, settings.upload_agent_root, settings.upload_max_bytes
+)
 
 _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")

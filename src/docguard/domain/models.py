@@ -197,7 +197,7 @@ class AuditProfile(BaseModel):
 
 
 class AuditAgentDefinition(BaseModel):
-    """A versioned specialist registered under one review type.
+    """A versioned specialist that can be registered by one or more review types.
 
     Example::
 
@@ -239,8 +239,6 @@ class ReviewTypeDefinition(BaseModel):
     version: str
     display_name: str
     description: str
-    agent_backend: AgentBackend = AgentBackend.OPENCLAW
-    agent_model_ref: str
     skill_ref: str
     core_contract_version: int = Field(ge=1)
     rule_pack_ref: str
@@ -250,22 +248,8 @@ class ReviewTypeDefinition(BaseModel):
     agents: list[AuditAgentDefinition] = Field(default_factory=list)
 
     def resolved_agents(self) -> list[AuditAgentDefinition]:
-        """Return registered specialists, retaining legacy single-agent definitions."""
-        if self.agents:
-            return list(self.agents)
-        # default
-        return [
-            AuditAgentDefinition(
-                agent_id="default",
-                version=self.version,
-                dimension="content",
-                agent_backend=self.agent_backend,
-                agent_model_ref=self.agent_model_ref,
-                skill_ref=self.skill_ref,
-                rule_pack_ref=self.rule_pack_ref,
-                rule_pack_version=self.rule_pack_version,
-            )
-        ]
+        """Return the Agent definitions registered for this review type."""
+        return list(self.agents)
 
 
 class InputDocument(BaseModel):
@@ -319,6 +303,7 @@ class AgentRun(BaseModel):
     """One specialist execution inside an independently recoverable attempt."""
 
     agent: AuditAgentDefinition
+    # ${findingsDir}/${dimension}/${scope}.findings.json
     result_uri: str
     status: AgentRunStatus = AgentRunStatus.PREPARED
     gateway_response_id: str | None = None

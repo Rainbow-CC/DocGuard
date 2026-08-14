@@ -1,0 +1,26 @@
+services:
+  docguard:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: docguard:demo
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # Keep the unauthenticated demo service reachable only from this server by default.
+      # Change DOCGUARD_BIND_ADDRESS to 0.0.0.0 only behind a reverse proxy or a trusted LAN.
+      - "${DOCGUARD_BIND_ADDRESS:-127.0.0.1}:${DOCGUARD_PORT:-8000}:8000"
+    volumes:
+      # SQLite, uploads, task artifacts, and logs survive image/container replacement.
+      - ./runtime:/var/lib/docguard
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/healthz').read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

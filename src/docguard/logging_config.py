@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-import os
 from logging.handlers import TimedRotatingFileHandler
-from pathlib import Path
+
+from docguard.settings import Settings
 
 
 class ExcludeTaskListAccessLogFilter(logging.Filter):
@@ -31,11 +31,12 @@ def _configure_access_log_filters() -> None:
         access_logger.addFilter(ExcludeTaskListAccessLogFilter())
 
 
-def configure_logging() -> None:
+def configure_logging(settings: Settings | None = None) -> None:
     """Emit DocGuard logs to the process console and a rotating UTF-8 log file."""
     _configure_access_log_filters()
     logger = logging.getLogger("docguard")
-    level_name = os.getenv("DOCGUARD_LOG_LEVEL", "INFO").upper()
+    settings = settings or Settings.from_environment()
+    level_name = settings.log_level.upper()
     level = getattr(logging, level_name, logging.INFO)
     logger.setLevel(level)
 
@@ -50,9 +51,9 @@ def configure_logging() -> None:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    log_path = Path(os.getenv("DOCGUARD_LOG_FILE", "logs/docguard.log"))
+    log_path = settings.log_file
     try:
-        retention_days = int(os.getenv("DOCGUARD_LOG_RETENTION_DAYS", "14"))
+        retention_days = settings.log_retention_days
     except ValueError:
         retention_days = 14
         logger.warning("Invalid DOCGUARD_LOG_RETENTION_DAYS; using 14 days")

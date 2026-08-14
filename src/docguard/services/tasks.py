@@ -26,6 +26,7 @@ from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.preprocessing import AuditPreprocessor, PreprocessingError, WslDocxPreprocessor
 from docguard.services.reporting import render_markdown
 from docguard.services.store import TaskStore
+from docguard.settings import Settings
 
 _UNSET = object()
 logger = logging.getLogger("docguard.tasks")
@@ -39,18 +40,29 @@ class AuditTaskService:
         artifacts: ArtifactStore | None = None,
         openclaw_gateway: OpenClawAttemptGateway | None = None,
         preprocessor: AuditPreprocessor | None = None,
+        settings: Settings | None = None,
     ) -> None:
+        settings = settings or Settings.from_environment()
         self.store = store
         self.review_types = review_types
-        self.artifacts = artifacts or ArtifactStore.from_environment()
-        self.openclaw_gateway = openclaw_gateway or OpenClawAgentGateway()
-        self.preprocessor = preprocessor or WslDocxPreprocessor.from_environment()
+        self.artifacts = artifacts or ArtifactStore(settings.result_write_root, settings.result_agent_root)
+        self.openclaw_gateway = openclaw_gateway or OpenClawAgentGateway(
+            settings.openclaw_gateway_url, settings.openclaw_api_token
+        )
+        self.preprocessor = preprocessor or WslDocxPreprocessor(
+            settings.skill_agent_root,
+            settings.result_agent_root,
+            command=settings.preprocess_command,
+            distribution=settings.wsl_distribution,
+            write_root=settings.result_write_root,
+        )
 
     def create(self, request: CreateTaskRequest) -> AuditTask:
         review_type = self.review_types.get(request.review_type_id)
-        if not hasattr(review_type, "agent_backend"):
-            raise KeyError(f"Registry returned no review type for {request.review_type_id}")
-        backend = request.agent_backend or review_type.agent_backend
+        agents = review_type.resolved_agents()
+        if not agents:
+            raise KeyError(f"Review type {request.review_type_id} has no registered agents")
+        backend = request.agent_backend or agents[0].agent_backend
         task = AuditTask(
             document=request.document,
             profile=review_type.profile,

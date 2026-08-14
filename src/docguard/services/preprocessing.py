@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from docguard.domain.models import AuditAttempt, AuditTask
+from docguard.settings import Settings
 from docguard.services.vision import QwenVisionAdapter, VisionAdapter, VisionResponseCache
 
 logger = logging.getLogger("docguard.preprocessing")
@@ -52,17 +52,22 @@ class WslDocxPreprocessor:
     ) -> None:
         self.skill_root = PurePosixPath(skill_root)
         self.result_root = PurePosixPath(result_root)
-        self.command = command or os.getenv("DOCGUARD_PREPROCESS_COMMAND", "wsl.exe")
-        self.distribution = distribution or os.getenv("DOCGUARD_WSL_DISTRIBUTION", "Ubuntu")
-        self.write_root = Path(write_root or os.getenv("DOCGUARD_RESULT_WRITE_ROOT", r"\\wsl.localhost\Ubuntu\home\ubuntu\docguard-results"))
+        settings = Settings.from_environment()
+        self.command = command or settings.preprocess_command
+        self.distribution = distribution or settings.wsl_distribution or ""
+        self.write_root = Path(write_root or settings.result_write_root)
         self.vision_adapter = vision_adapter or QwenVisionAdapter()
         self.vision_cache = vision_cache or VisionResponseCache.from_environment()
 
     @classmethod
     def from_environment(cls) -> "WslDocxPreprocessor":
+        settings = Settings.from_environment()
         return cls(
-            skill_root=os.getenv("DOCGUARD_SKILL_AGENT_ROOT", "/mnt/c/Code/fromGitHub/DocGuard/doc-audit-integrate-skill"),
-            result_root=os.getenv("DOCGUARD_RESULT_AGENT_ROOT", "/home/ubuntu/docguard-results"),
+            skill_root=settings.skill_agent_root,
+            result_root=settings.result_agent_root,
+            command=settings.preprocess_command,
+            distribution=settings.wsl_distribution,
+            write_root=settings.result_write_root,
         )
 
     def prepare(self, task: AuditTask, attempt: AuditAttempt) -> None:
@@ -74,17 +79,9 @@ class WslDocxPreprocessor:
         command = [self.command]
         if Path(self.command).name.lower() == "wsl.exe":
             # Do not rely on Windows-to-WSL environment propagation.
-            command.extend(
-                [
-                    "--distribution",
-                    self.distribution,
-                    "--",
-                    "bash",
-                    str(runner),
-                    document,
-                    str(attempt_dir),
-                ]
-            )
+            if self.distribution:
+                command.extend(["--distribution", self.distribution])
+            command.extend(["--", "bash", str(runner), document, str(attempt_dir)])
         else:
             command.extend([str(runner), document, str(attempt_dir)])
         logger.info(

@@ -8,8 +8,24 @@ dist/
 .env
 data/
 logs/
+deploy/.env
+deploy/runtime/
 .idea/
+.jbeval/
 doc-audit-integrate-skill/.obsidian/
+doc-audit-integrate-skill.zip
+README.pdf
 tools/manual-test.txt
 tools/test.json
+tools/openclaw-monitor-script.txt
 /review-tmp/
+
+# Local design drafts and generated previews
+/docs/agent-skill-structure.png
+/docs/multi-agent-er.md
+/docs/multi-agent.drawio
+/docs/plan.md
+/docs/picture/architecture.mmd
+/docs/picture/business-architecture.mmd
+/docs/picture/business-architecture.png
+/docs/picture/business-architecture.svg

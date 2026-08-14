@@ -16,6 +16,7 @@ from docguard.domain.models import (
     EvidenceRef,
     Finding,
 )
+from docguard.settings import Settings
 
 
 logger = logging.getLogger("docguard.artifacts")
@@ -57,13 +58,8 @@ class ArtifactStore:
 
     @classmethod
     def from_environment(cls) -> ArtifactStore:
-        return cls(
-            write_root=os.getenv(
-                "DOCGUARD_RESULT_WRITE_ROOT",
-                r"\\wsl.localhost\Ubuntu\home\ubuntu\docguard-results",
-            ),
-            agent_root=os.getenv("DOCGUARD_RESULT_AGENT_ROOT", "/home/ubuntu/docguard-results"),
-        )
+        settings = Settings.from_environment()
+        return cls(settings.result_write_root, settings.result_agent_root)
 
     def prepare(self, task: AuditTask) -> AuditAttempt:
         attempt = AuditAttempt(
