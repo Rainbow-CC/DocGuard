@@ -7,6 +7,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    depends_on:
+      openclaw:
+        condition: service_healthy
     ports:
       # Keep the unauthenticated demo service reachable only from this server by default.
       # Change DOCGUARD_BIND_ADDRESS to 0.0.0.0 only behind a reverse proxy or a trusted LAN.
@@ -24,3 +27,38 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  openclaw:
+    image: docguard-openclaw:2026.6.10
+    restart: unless-stopped
+    environment:
+      HOME: /home/ubuntu
+      OPENCLAW_STATE_DIR: ${OPENCLAW_HOST_HOME}
+      OPENCLAW_CONFIG_PATH: ${OPENCLAW_HOST_HOME}/openclaw.json
+      OPENCLAW_WORKSPACE_DIR: ${OPENCLAW_HOST_HOME}/workspace
+      OPENCLAW_GATEWAY_BIND: lan
+      OPENCLAW_GATEWAY_PORT: "18789"
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+    command: ["node", "openclaw.mjs", "gateway", "--bind", "lan", "--port", "18789"]
+    group_add:
+      - "${DOCKER_GID}"
+    volumes:
+      - ${OPENCLAW_HOST_HOME}:${OPENCLAW_HOST_HOME}
+      - ${DOCGUARD_RUNTIME_HOST}:${DOCGUARD_RUNTIME_HOST}
+      - ${DOCGUARD_REPO_HOST}:${DOCGUARD_REPO_HOST}:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    expose:
+      - "18789"
+    cap_drop:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "node -e \"fetch('http://127.0.0.1:18789/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
