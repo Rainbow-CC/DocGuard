@@ -16,7 +16,7 @@
    git clone <repository-url> DocGuard
    cd DocGuard
    ```
-
+  
 2. 创建部署配置和持久化目录，并使容器内的非 root 用户可写：
 
    ```bash

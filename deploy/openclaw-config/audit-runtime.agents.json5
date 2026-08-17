@@ -1,0 +1,42 @@
+// Included by docguard-openclaw.json5.
+{
+  list: [
+    {
+      id: "audit-runtime",
+      workspace: "${OPENCLAW_HOST_HOME}/workspace-audit-runtime",
+      model: "minimax/MiniMax-M3",
+      skills: ["docx-tech-architecture-audit"],
+      sandbox: {
+        mode: "all",
+        backend: "docker",
+        scope: "session",
+        workspaceAccess: "ro",
+        docker: {
+          image: "openclaw-docguard-sandbox:2026.6.10",
+          readOnlyRoot: true,
+          network: "none",
+          capDrop: ["ALL"],
+          binds: ["${DOCGUARD_RUNTIME_HOST}:/var/lib/docguard:rw"],
+          dangerouslyAllowExternalBindSources: true,
+        },
+      },
+      tools: {
+        allow: ["read", "exec"],
+        deny: [
+          "write",
+          "edit",
+          "apply_patch",
+          "process",
+          "browser",
+          "canvas",
+          "nodes",
+          "cron",
+          "gateway",
+          "image",
+        ],
+        exec: { host: "sandbox" },
+        elevated: { enabled: false },
+      },
+    },
+  ],
+}

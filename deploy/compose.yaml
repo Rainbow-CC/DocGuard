@@ -34,14 +34,25 @@ services:
     environment:
       HOME: /home/ubuntu
       OPENCLAW_STATE_DIR: ${OPENCLAW_HOST_HOME}
-      OPENCLAW_CONFIG_PATH: ${OPENCLAW_HOST_HOME}/openclaw.json
+      OPENCLAW_CONFIG_PATH: ${OPENCLAW_HOST_HOME}/docguard-openclaw.json5
       OPENCLAW_WORKSPACE_DIR: ${OPENCLAW_HOST_HOME}/workspace
+      # These paths are also consumed by the included per-agent configuration.
+      # Keep their container paths identical to the host paths: the Gateway asks
+      # the host Docker daemon to create the sibling audit sandbox.
+      OPENCLAW_HOST_HOME: ${OPENCLAW_HOST_HOME}
+      DOCGUARD_RUNTIME_HOST: ${DOCGUARD_RUNTIME_HOST}
       OPENCLAW_GATEWAY_BIND: lan
       OPENCLAW_GATEWAY_PORT: "18789"
+      # DocGuard authenticates with OPENCLAW_API_TOKEN; the Gateway receives the
+      # same value under OpenClaw's server-side token variable.
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_API_TOKEN:-}
       MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
     command: ["node", "openclaw.mjs", "gateway", "--bind", "lan", "--port", "18789"]
     group_add:
       - "${DOCKER_GID}"
+      # runtime is 10001:10001 mode 750. The Gateway needs read/traverse access
+      # to validate the external bind source, but not write permission.
+      - "10001"
     volumes:
       - ${OPENCLAW_HOST_HOME}:${OPENCLAW_HOST_HOME}
       - ${DOCGUARD_RUNTIME_HOST}:${DOCGUARD_RUNTIME_HOST}

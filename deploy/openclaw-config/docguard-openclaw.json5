@@ -1,0 +1,16 @@
+// Dedicated configuration entrypoint for the Docker-based DocGuard Gateway.
+// It deliberately lives outside the native ~/.openclaw state directory.
+{
+  gateway: {
+    // Compose supplies this from deploy/.env as OPENCLAW_API_TOKEN.
+    auth: { token: "${OPENCLAW_GATEWAY_TOKEN}" },
+    http: {
+      endpoints: {
+        responses: { enabled: true },
+      },
+    },
+  },
+  // Keep the per-agent policy in its own file so it is reviewable and can be
+  // changed without mixing it into the Gateway-level configuration.
+  agents: { $include: "./audit-runtime.agents.json5" },
+}
