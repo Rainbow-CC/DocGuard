@@ -3,6 +3,7 @@
 {
   gateway: {
     // Compose supplies this from deploy/.env as OPENCLAW_API_TOKEN.
+    mode: "local",
     auth: { token: "${OPENCLAW_GATEWAY_TOKEN}" },
     http: {
       endpoints: {

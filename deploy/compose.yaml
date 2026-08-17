@@ -15,8 +15,10 @@ services:
       # Change DOCGUARD_BIND_ADDRESS to 0.0.0.0 only behind a reverse proxy or a trusted LAN.
       - "${DOCGUARD_BIND_ADDRESS:-127.0.0.1}:${DOCGUARD_PORT:-8000}:8000"
     volumes:
-      # SQLite, uploads, task artifacts, and logs survive image/container replacement.
-      - ./runtime:/var/lib/docguard
+      # Keep durable application state on the same explicit WSL host path that
+      # OpenClaw mounts into its sandbox. A relative path would vary by the
+      # filesystem from which Compose is invoked.
+      - ${DOCGUARD_RUNTIME_HOST}:/var/lib/docguard
     healthcheck:
       test:
         - CMD

@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     HOME=/tmp
 
-# LibreOffice and Poppler are required by the DOCX preprocessing skill.
+# LibreOffice, Poppler, and Pillow are required by the DOCX preprocessing skill.
 # Noto CJK prevents common Chinese text rendering failures in generated images.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -15,7 +15,7 @@ RUN apt-get update \
         poppler-utils \
         fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir "uv>=0.6,<1"
+    && pip install --no-cache-dir "uv>=0.6,<1" "Pillow>=10,<12"
 
 WORKDIR /app
 
