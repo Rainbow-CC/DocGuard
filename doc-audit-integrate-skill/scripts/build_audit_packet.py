@@ -39,6 +39,7 @@ def table_markdown(rows: list[list[Any]]) -> str:
 def build_evidence(data: dict[str, Any]) -> dict[str, Any]:
     raw_blocks = data.get("blocks", [])
     chapters = [{**chapter, "chapter_number": number} for number, chapter in enumerate(data.get("chapters", []), start=1)]
+    headings = data.get("headings", [])
     media = {item["id"]: item for item in data.get("media", []) if item.get("id")}
     chapter_by_id = {chapter["id"]: chapter for chapter in chapters if chapter.get("id")}
     blocks: list[dict[str, Any]] = []
@@ -91,9 +92,10 @@ def build_evidence(data: dict[str, Any]) -> dict[str, Any]:
         "revisions": data.get("revisions", {"mode": "unknown"}),
         "warnings": data.get("warnings", []),
         "chapters": chapters,
+        "headings": headings,
         "blocks": blocks,
         "candidate_images": list(images_by_id.values()),
-        "summary": {"blocks": len(blocks), "chapters": len(chapters), "candidate_images": len(images_by_id)},
+        "summary": {"blocks": len(blocks), "chapters": len(chapters), "headings": len(headings), "candidate_images": len(images_by_id)},
     }
 
 
