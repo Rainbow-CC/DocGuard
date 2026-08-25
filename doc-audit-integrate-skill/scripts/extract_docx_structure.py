@@ -24,9 +24,9 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 V = "urn:schemas-microsoft-com:vml"
-O = "urn:schemas-microsoft-com:office:office"
+OFFICE = "urn:schemas-microsoft-com:office:office"
 REL = "http://schemas.openxmlformats.org/package/2006/relationships"
-NS = {"w": W, "r": R, "a": A, "v": V, "o": O}
+NS = {"w": W, "r": R, "a": A, "v": V, "o": OFFICE}
 
 HEADING_RE = re.compile(r"^(?:第[一二三四五六七八九十百零]+[章节篇]|\d+(?:\.\d+)+)[、.．\s]*\S+")
 REVISION_HEADING_RE = re.compile(r"(?:修订|修訂|版本|变更|變更).{0,4}(?:记录|記錄|历史|歷史)")
@@ -77,6 +77,248 @@ def text_of(element: ET.Element, revision_mode: str) -> str:
 def style_of(paragraph: ET.Element) -> str | None:
     style = paragraph.find("w:pPr/w:pStyle", NS)
     return style.get(f"{{{W}}}val") if style is not None else None
+
+
+def word_attr(element: ET.Element | None, name: str) -> str | None:
+    """Read a WordprocessingML attribute without leaking namespace details."""
+    return element.get(f"{{{W}}}{name}") if element is not None else None
+
+
+def enabled(element: ET.Element | None) -> bool | None:
+    """Interpret OOXML on/off values; an absent property remains unspecified."""
+    if element is None:
+        return None
+    return word_attr(element, "val") not in {"0", "false", "off"}
+
+
+def half_points(element: ET.Element | None) -> float | None:
+    value = word_attr(element, "val")
+    return int(value) / 2 if value and value.isdigit() else None
+
+
+def color_of(element: ET.Element | None) -> str | None:
+    value = word_attr(element, "val")
+    return None if value in (None, "auto") else value
+
+
+def parse_run_properties(properties: ET.Element | None) -> dict[str, object]:
+    """Return only values explicitly declared by one rPr element.
+
+    The caller merges this sparse mapping from document defaults through direct
+    run formatting, which mirrors Word's formatting precedence.
+    """
+    if properties is None:
+        return {}
+    fonts = properties.find("w:rFonts", NS)
+    result: dict[str, object] = {}
+    for name, attribute in (
+        ("font_ascii", "ascii"),
+        ("font_h_ansi", "hAnsi"),
+        ("font_east_asia", "eastAsia"),
+        ("font_cs", "cs"),
+        ("font_ascii_theme", "asciiTheme"),
+        ("font_h_ansi_theme", "hAnsiTheme"),
+        ("font_east_asia_theme", "eastAsiaTheme"),
+        ("font_cs_theme", "cstheme"),
+    ):
+        if value := word_attr(fonts, attribute):
+            result[name] = value
+    for name, tag in (
+        ("size_pt", "sz"),
+        ("size_cs_pt", "szCs"),
+    ):
+        if value := half_points(properties.find(f"w:{tag}", NS)):
+            result[name] = value
+    for name, tag in (
+        ("bold", "b"),
+        ("bold_cs", "bCs"),
+        ("italic", "i"),
+        ("italic_cs", "iCs"),
+    ):
+        if (value := enabled(properties.find(f"w:{tag}", NS))) is not None:
+            result[name] = value
+    if value := word_attr(properties.find("w:u", NS), "val"):
+        result["underline"] = value
+    if value := color_of(properties.find("w:color", NS)):
+        result["color"] = value
+    if value := word_attr(properties.find("w:highlight", NS), "val"):
+        result["highlight"] = value
+    if value := word_attr(properties.find("w:vertAlign", NS), "val"):
+        result["vertical_align"] = value
+    return result
+
+
+def parse_paragraph_properties(properties: ET.Element | None) -> dict[str, object]:
+    """Extract paragraph-level layout properties that are useful in template checks."""
+    if properties is None:
+        return {}
+    result: dict[str, object] = {}
+    if value := word_attr(properties.find("w:jc", NS), "val"):
+        result["alignment"] = value
+    spacing = properties.find("w:spacing", NS)
+    if spacing is not None:
+        result["spacing"] = {
+            name: value
+            for name in ("before", "after", "line", "lineRule")
+            if (value := word_attr(spacing, name)) is not None
+        }
+    indent = properties.find("w:ind", NS)
+    if indent is not None:
+        result["indent"] = {
+            name: value
+            for name in ("left", "right", "firstLine", "hanging", "leftChars", "rightChars", "firstLineChars", "hangingChars")
+            if (value := word_attr(indent, name)) is not None
+        }
+    for name, tag in (
+        ("keep_next", "keepNext"),
+        ("keep_lines", "keepLines"),
+        ("page_break_before", "pageBreakBefore"),
+    ):
+        if (value := enabled(properties.find(f"w:{tag}", NS))) is not None:
+            result[name] = value
+    return result
+
+
+def outline_level_of(properties: ET.Element | None) -> int | None:
+    """Return a one-based Word outline level, if the property explicitly declares one."""
+    value = word_attr(properties.find("w:outlineLvl", NS) if properties is not None else None, "val")
+    return int(value) + 1 if value and value.isdigit() and 0 <= int(value) <= 8 else None
+
+
+def build_style_index(styles_xml: bytes | None) -> tuple[dict[str, dict[str, object]], dict[str, object]]:
+    """Index paragraph styles and document defaults, retaining their OOXML inheritance."""
+    if not styles_xml:
+        return {}, {}
+    root = ET.fromstring(styles_xml)
+    defaults = parse_run_properties(root.find("w:docDefaults/w:rPrDefault/w:rPr", NS))
+    styles: dict[str, dict[str, object]] = {}
+    for item in root.findall(f"{{{W}}}style"):
+        if item.get(f"{{{W}}}type") != "paragraph":
+            continue
+        style_id = item.get(f"{{{W}}}styleId")
+        if not style_id:
+            continue
+        styles[style_id] = {
+            "style_id": style_id,
+            "based_on": word_attr(item.find("w:basedOn", NS), "val"),
+            "run": parse_run_properties(item.find("w:rPr", NS)),
+            "paragraph": parse_paragraph_properties(item.find("w:pPr", NS)),
+            "outline_level": outline_level_of(item.find("w:pPr", NS)),
+        }
+    return styles, defaults
+
+
+def style_chain(style_id: str | None, styles: dict[str, dict[str, object]]) -> list[dict[str, object]]:
+    """Return style ancestors first, protecting extraction from malformed cycles."""
+    chain: list[dict[str, object]] = []
+    seen: set[str] = set()
+    current = style_id
+    while current and current not in seen:
+        seen.add(current)
+        style = styles.get(current)
+        if style is None:
+            break
+        chain.append(style)
+        based_on = style.get("based_on")
+        current = based_on if isinstance(based_on, str) else None
+    return list(reversed(chain))
+
+
+def heading_of(paragraph: ET.Element, styles: dict[str, dict[str, object]]) -> dict[str, object] | None:
+    """Identify headings only from Word's explicit outline-level semantics.
+
+    Deliberately do not infer a heading from text numbering or style names: that
+    is useful for loose navigation, but not reliable enough for formatting audit.
+    """
+    paragraph_properties = paragraph.find("w:pPr", NS)
+    if level := outline_level_of(paragraph_properties):
+        return {"level": level, "basis": "paragraph_outline_level"}
+    level: int | None = None
+    for style in style_chain(style_of(paragraph), styles):
+        style_level = style.get("outline_level")
+        if isinstance(style_level, int):
+            level = style_level
+    return {"level": level, "basis": "style_outline_level"} if level is not None else None
+
+
+def resolved_run_format(
+    paragraph: ET.Element,
+    run: ET.Element,
+    styles: dict[str, dict[str, object]],
+    defaults: dict[str, object],
+) -> tuple[dict[str, object], dict[str, str]]:
+    """Resolve font attributes from defaults, style inheritance, pPr and direct rPr."""
+    values = dict(defaults)
+    sources = {name: "doc_default" for name in values}
+    for style in style_chain(style_of(paragraph), styles):
+        for name, value in style["run"].items():
+            values[name] = value
+            sources[name] = f"style:{style['style_id']}"
+    paragraph_properties = paragraph.find("w:pPr", NS)
+    for name, value in parse_run_properties(paragraph_properties.find("w:rPr", NS) if paragraph_properties is not None else None).items():
+        values[name] = value
+        sources[name] = "paragraph_direct"
+    for name, value in parse_run_properties(run.find("w:rPr", NS)).items():
+        values[name] = value
+        sources[name] = "direct"
+    return values, sources
+
+
+def visible_runs(paragraph: ET.Element, revision_mode: str):
+    """Yield text runs in document order, excluding accepted-away revisions."""
+    if is_hidden_by_revision(paragraph, revision_mode):
+        return
+    if paragraph.tag == f"{{{W}}}r":
+        yield paragraph
+        return
+    for child in paragraph:
+        yield from visible_runs(child, revision_mode)
+
+
+def format_paragraph(
+    paragraph: ET.Element,
+    styles: dict[str, dict[str, object]],
+    defaults: dict[str, object],
+    revision_mode: str,
+) -> dict[str, object]:
+    style_id = style_of(paragraph)
+    paragraph_values: dict[str, object] = {}
+    for style in style_chain(style_id, styles):
+        paragraph_values.update(style["paragraph"])
+    paragraph_values.update(parse_paragraph_properties(paragraph.find("w:pPr", NS)))
+    runs: list[dict[str, object]] = []
+    cursor = 0
+    for run in visible_runs(paragraph, revision_mode):
+        text = text_of(run, revision_mode)
+        if not text:
+            continue
+        font, source = resolved_run_format(paragraph, run, styles, defaults)
+        if runs and runs[-1]["end"] == cursor and runs[-1]["font"] == font and runs[-1]["source"] == source:
+            runs[-1]["text"] += text
+            runs[-1]["end"] = cursor + len(text)
+        else:
+            runs.append({"text": text, "start": cursor, "end": cursor + len(text), "font": font, "source": source})
+        cursor += len(text)
+    return {"style_id": style_id, "heading": heading_of(paragraph, styles), "paragraph": paragraph_values, "runs": runs}
+
+
+def format_table(
+    table: ET.Element,
+    styles: dict[str, dict[str, object]],
+    defaults: dict[str, object],
+    revision_mode: str,
+) -> list[list[dict[str, object]]]:
+    formatted_rows: list[list[dict[str, object]]] = []
+    for row in table.findall("w:tr", NS):
+        if revision_mode == "accept" and (
+            row.find("./w:trPr/w:del", NS) is not None or row.find("./w:trPr/w:moveFrom", NS) is not None
+        ):
+            continue
+        formatted_rows.append([
+            {"paragraphs": [format_paragraph(paragraph, styles, defaults, revision_mode) for paragraph in cell.findall("./w:p", NS)]}
+            for cell in row.findall("w:tc", NS)
+        ])
+    return formatted_rows
 
 
 def style_levels(styles_xml: bytes | None) -> dict[str, int]:
@@ -323,10 +565,12 @@ def extract(
         if "word/_rels/document.xml.rels" in archive.namelist():
             rel_root = ET.fromstring(archive.read("word/_rels/document.xml.rels"))
             relationships = {item.get("Id"): item.get("Target") for item in rel_root.findall(f"{{{REL}}}Relationship")}
-        levels = style_levels(archive.read("word/styles.xml") if "word/styles.xml" in archive.namelist() else None)
+        styles_xml = archive.read("word/styles.xml") if "word/styles.xml" in archive.namelist() else None
+        levels = style_levels(styles_xml)
+        styles, default_run_format = build_style_index(styles_xml)
         blocks: list[dict] = []
+        formatting_blocks: list[dict] = []
         chapters: list[dict] = []
-        headings: list[dict] = []
         media_by_id: dict[str, dict] = {}
         warnings: list[str] = []
         stack: list[dict] = []
@@ -389,25 +633,19 @@ def extract(
 
         image_tags = {f"{{{A}}}blip", f"{{{V}}}imagedata"}
         object_tag = f"{{{W}}}object"
-        ole_tag = f"{{{O}}}OLEObject"
+        ole_tag = f"{{{OFFICE}}}OLEObject"
         for index, child in enumerate(list(body) if body is not None else []):
             tag = child.tag.rsplit("}", 1)[-1]
             if tag == "p":
                 content = text_of(child, revision_mode)
                 style = style_of(child)
                 heading_level = level_of(style, content, levels)
-                is_heading = (
-                    heading_level is not None
-                    and bool(content)
-                    and not REVISION_HEADING_RE.search(content)
-                )
-                if is_heading:
-                    headings.append({"level": heading_level, "title": content, "block_index": index})
-                if is_heading and heading_level == 1:
-                    while stack and stack[-1]["level"] >= 1:
+                level = 1 if heading_level == 1 and not REVISION_HEADING_RE.search(content) else None
+                if level and content:
+                    while stack and stack[-1]["level"] >= level:
                         stack.pop()
                     chapter = {
-                        "id": f"chapter-{len(chapters) + 1}", "level": 1, "title": content,
+                        "id": f"chapter-{len(chapters) + 1}", "level": level, "title": content,
                         "block_start": index, "block_end": None, "parent_id": stack[-1]["id"] if stack else None,
                     }
                     chapters.append(chapter)
@@ -434,14 +672,37 @@ def extract(
                 if ole_ids:
                     block["embedded_object_ids"] = ole_ids
                 blocks.append(block)
+                formatting_blocks.append({
+                    "block_index": index,
+                    "type": "paragraph",
+                    **format_paragraph(child, styles, default_run_format, revision_mode),
+                })
             elif tag == "tbl":
                 blocks.append({"index": index, "type": "table", "rows": table_rows(child, revision_mode), "chapter_id": stack[-1]["id"] if stack else None})
+                formatting_blocks.append({
+                    "block_index": index,
+                    "type": "table",
+                    "cells": format_table(child, styles, default_run_format, revision_mode),
+                })
         for position, chapter in enumerate(chapters):
             chapter["block_end"] = chapters[position + 1]["block_start"] - 1 if position + 1 < len(chapters) else len(blocks) - 1
         media = list(media_by_id.values())
         if render:
             render_png(media, output, soffice, pdftoppm, vector_dpi, warnings)
-        return {"source": str(docx.resolve()), "revisions": revisions, "blocks": blocks, "chapters": chapters, "headings": headings, "media": media, "warnings": warnings}
+        return {
+            "source": str(docx.resolve()),
+            "revisions": revisions,
+            "blocks": blocks,
+            "chapters": chapters,
+            "media": media,
+            "warnings": warnings,
+            "_formatting": {
+                "schema_version": "1.0",
+                "source": str(docx.resolve()),
+                "revisions": revisions,
+                "blocks": formatting_blocks,
+            },
+        }
 
 
 def main() -> int:
@@ -469,9 +730,13 @@ def main() -> int:
     except (ValueError, RuntimeError, zipfile.BadZipFile, ET.ParseError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+    formatting = result.pop("_formatting")
     output = args.output / "document-structure.json"
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    formatting_output = args.output / "block-formatting.json"
+    formatting_output.write_text(json.dumps(formatting, ensure_ascii=False, indent=2), encoding="utf-8")
     print(output)
+    print(formatting_output)
     return 0
 
 
