@@ -1,34 +1,59 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "VisualFacts",
-  "description": "A minimal, diagram-type-neutral envelope. The facts object is intentionally flexible so the visual model can use fields appropriate to the image.",
+  "title": "ArchitectureDiagramFacts",
   "type": "object",
-  "required": ["diagram_type", "diagram_scope", "facts", "explicit_relations", "uncertainties"],
+  "required": ["diagram_type", "components", "connections", "zones", "uncertainties"],
   "properties": {
-    "diagram_type": {
-      "enum": ["architecture", "deployment", "network", "data_flow", "process", "data_model", "table_or_matrix", "unknown"]
-    },
-    "diagram_scope": {
-      "type": "string",
-      "description": "A concise statement of what the image mainly depicts."
-    },
-    "facts": {
-      "type": "object",
-      "description": "Diagram-type-specific visual facts. Use clear English snake_case field names; values may be nested JSON objects or arrays.",
-      "additionalProperties": true
-    },
-    "explicit_relations": {
+    "diagram_type": {"enum": ["system_architecture", "deployment", "network_topology", "data_flow", "process_flow", "unknown"]},
+    "components": {
       "type": "array",
-      "description": "Only relationships represented by an explicit visible line, arrow, interface symbol, or connector.",
       "items": {
         "type": "object",
-        "required": ["source", "target", "direction", "label", "evidence"],
+        "required": ["id", "name", "category", "technology", "instances", "availability_mode", "evidence", "confidence"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+          "name": {"type": "string"},
+          "category": {"enum": ["application_service", "gateway", "database", "cache", "message_queue", "search", "storage", "external_system", "client", "load_balancer", "monitoring", "identity_security", "framework", "infrastructure", "unknown"]},
+          "technology": {"type": ["string", "null"]},
+          "instances": {"oneOf": [{"type": "integer", "minimum": 1}, {"enum": ["multiple", "unknown", "ambiguous"]}]},
+          "availability_mode": {"enum": ["active-active", "active-standby", "cluster", "single", "unknown", "ambiguous"]},
+          "availability_label": {"type": ["string", "null"]},
+          "evidence": {"type": "string"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "connections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "direction", "label", "protocol", "evidence", "confidence"],
         "properties": {
           "source": {"type": "string"},
           "target": {"type": "string"},
           "direction": {"enum": ["source_to_target", "target_to_source", "bidirectional", "unknown"]},
           "label": {"type": ["string", "null"]},
-          "evidence": {"type": "string"}
+          "protocol": {"type": ["string", "null"]},
+          "evidence": {"type": "string"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "zone_type", "parent_zone_id", "component_ids", "evidence", "confidence"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+          "name": {"type": "string"},
+          "zone_type": {"enum": ["layer", "group", "environment", "security_boundary", "network_zone", "unknown"]},
+          "parent_zone_id": {"type": ["string", "null"]},
+          "component_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "evidence": {"type": "string"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
         },
         "additionalProperties": false
       }
@@ -38,10 +63,7 @@
       "items": {
         "type": "object",
         "required": ["subject", "reason"],
-        "properties": {
-          "subject": {"type": "string"},
-          "reason": {"type": "string"}
-        },
+        "properties": {"subject": {"type": "string"}, "reason": {"type": "string"}},
         "additionalProperties": false
       }
     }

@@ -32,6 +32,9 @@ JUDGMENTS = {"图文不一致", "文本不一致", "文本不完整", "未提供
 SEVERITIES = {"重大", "一般", "优化", "观察"}
 CATEGORIES = {"一致性", "可用性", "部署", "安全", "数据流", "可读性"}
 REF_FIELDS = {"evidence_id", "role", "quote", "explanation", "selector", "region"}
+ROUTING_FIELDS = {"schema_version", "shared", "packs", "fallback"}
+PACK_FIELDS = {"pack_id", "rule_pack"}
+PACK_FIELDS_OPTIONAL = {"reasoning"}
 
 
 def load_json(path: Path) -> object:
@@ -41,10 +44,15 @@ def load_json(path: Path) -> object:
         raise ValueError(f"cannot read JSON: {exc}") from exc
 
 
-def require_fields(value: object, fields: set[str], label: str) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != fields:
-        missing = fields - set(value) if isinstance(value, dict) else fields
-        extra = set(value) - fields if isinstance(value, dict) else set()
+def require_fields(
+    value: object, fields: set[str], label: str, optional: set[str] = frozenset()
+) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    allowed = fields | optional
+    missing = fields - set(value)
+    extra = set(value) - allowed
+    if missing or extra:
         raise ValueError(f"{label} fields mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
     return value
 
@@ -158,6 +166,32 @@ def validate_evidence_ref(ref: dict[str, object], label: str, indexed: dict[str,
         validate_selector(ref["selector"], evidence_id, item)
 
 
+def validate_routing(value: object) -> None:
+    routing = require_fields(value, ROUTING_FIELDS, "routing")
+    if routing["schema_version"] != "routing-decision-v1":
+        raise ValueError("routing has an invalid schema_version")
+    if not isinstance(routing["shared"], list) or not all(
+        isinstance(item, str) and item.strip() for item in routing["shared"]
+    ):
+        raise ValueError("routing.shared must be an array of non-empty strings")
+    if not isinstance(routing["packs"], list) or not routing["packs"]:
+        raise ValueError("routing.packs must be a non-empty array")
+    for index, raw in enumerate(routing["packs"]):
+        pack = require_fields(
+            raw,
+            PACK_FIELDS,
+            f"routing.packs[{index}]",
+            optional=PACK_FIELDS_OPTIONAL,
+        )
+        for key in ("pack_id", "rule_pack"):
+            if not isinstance(pack[key], str) or not pack[key].strip():
+                raise ValueError(f"routing.packs[{index}].{key} must be a non-empty string")
+        if "reasoning" in pack and not isinstance(pack["reasoning"], str):
+            raise ValueError(f"routing.packs[{index}].reasoning must be a string when present")
+    if not isinstance(routing["fallback"], bool):
+        raise ValueError("routing.fallback must be a boolean")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True, type=Path)
@@ -167,10 +201,12 @@ def main() -> int:
     manifest = require_fields(load_json(args.manifest), {
         "schema_version", "task_id", "attempt_id", "document", "profile", "review_type"
     }, "manifest")
-    result = require_fields(load_json(args.input), TOP_LEVEL, "result")
+    result = require_fields(load_json(args.input), TOP_LEVEL, "result", optional={"routing"})
     indexed_evidence = build_evidence_index(load_json(args.evidence))
     if result["schema_version"] != "docguard-agent-result-v1":
         raise ValueError("unsupported result schema_version")
+    if "routing" in result:
+        validate_routing(result["routing"])
     document = manifest["document"]
     profile = manifest["profile"]
     review_type = manifest["review_type"]
