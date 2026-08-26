@@ -93,7 +93,7 @@ def test_openclaw_result_artifact_completes_task(tmp_path: Path, review_type_reg
         InMemoryTaskStore(),
         review_type_registry,
         artifacts=artifacts,
-        openclaw_gateway=CompletingGateway(tmp_path),
+        agent_gateway=CompletingGateway(tmp_path),
         preprocessor=NoopPreprocessor(),
     )
     task = service.create(
@@ -128,7 +128,7 @@ def test_sse_disconnect_keeps_task_collecting_for_artifact_reconciliation(
         InMemoryTaskStore(),
         review_type_registry,
         artifacts=artifacts,
-        openclaw_gateway=DisconnectingGateway(),
+        agent_gateway=DisconnectingGateway(),
         preprocessor=NoopPreprocessor(),
     )
     task = service.create(
@@ -158,7 +158,7 @@ def test_collecting_task_can_continue_in_its_existing_attempt(
         InMemoryTaskStore(),
         review_type_registry,
         artifacts=artifacts,
-        openclaw_gateway=gateway,
+        agent_gateway=gateway,
         preprocessor=NoopPreprocessor(),
     )
     task = service.create(

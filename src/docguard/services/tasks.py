@@ -7,7 +7,7 @@ from datetime import datetime
 from docguard.adapters.agents import (
     GatewayExecutionError,
     OpenClawAgentGateway,
-    OpenClawAttemptGateway,
+    AgentGateway,
     graph_gateway_for,
 )
 from docguard.domain.models import (
@@ -38,7 +38,7 @@ class AuditTaskService:
         store: TaskStore,
         review_types: ReviewTypeRegistry,
         artifacts: ArtifactStore | None = None,
-        openclaw_gateway: OpenClawAttemptGateway | None = None,
+        agent_gateway: AgentGateway | None = None,
         preprocessor: AuditPreprocessor | None = None,
         settings: Settings | None = None,
     ) -> None:
@@ -46,7 +46,7 @@ class AuditTaskService:
         self.store = store
         self.review_types = review_types
         self.artifacts = artifacts or ArtifactStore(settings.result_write_root, settings.result_agent_root)
-        self.openclaw_gateway = openclaw_gateway or OpenClawAgentGateway(
+        self.agent_gateway = agent_gateway or OpenClawAgentGateway(
             settings.openclaw_gateway_url, settings.openclaw_api_token
         )
         self.preprocessor = preprocessor or WslDocxPreprocessor(
@@ -184,7 +184,7 @@ class AuditTaskService:
             for run in attempt.agent_runs:
                 if run.status is AgentRunStatus.COMPLETED:
                     continue
-                response_id = self.openclaw_gateway.continue_attempt(task, attempt, run)
+                response_id = self.agent_gateway.continue_attempt(task, attempt, run)
                 if response_id:
                     run.gateway_response_id = response_id
                     attempt.gateway_response_id = attempt.gateway_response_id or response_id
@@ -262,7 +262,7 @@ class AuditTaskService:
         def dispatch(run: AgentRun) -> tuple[AgentRun, str | None, Exception | None]:
             self._set_agent_run_status(run, AgentRunStatus.RUNNING)
             try:
-                return run, self.openclaw_gateway.execute_attempt(task, attempt, run), None
+                return run, self.agent_gateway.execute_attempt(task, attempt, run), None
             except Exception as exc:  # Gateway failures are reconciled through durable artifacts.
                 return run, None, exc
 

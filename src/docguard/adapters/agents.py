@@ -22,7 +22,7 @@ class GraphAuditGateway(Protocol):
     def audit_architecture(self, profile: AuditProfile) -> list[Finding]: ...
 
 
-class OpenClawAttemptGateway(Protocol):
+class AgentGateway(Protocol):
     """Dispatches an artifact-delivered OpenClaw audit attempt."""
 
     def execute_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None: ...
@@ -167,8 +167,8 @@ class OpenClawAgentGateway:
                 f"DOCGUARD_REVIEW_TYPE={task.review_type.review_type_id}",
                 f"DOCGUARD_REVIEW_TYPE_VERSION={task.review_type.version}",
                 f"DOCGUARD_CORE_CONTRACT_VERSION={task.review_type.core_contract_version}",
-                f"DOCGUARD_RULE_PACK={run.agent.rule_pack_ref}",
-                f"DOCGUARD_RULE_PACK_VERSION={run.agent.rule_pack_version}",
+                # f"DOCGUARD_RULE_PACK={run.agent.rule_pack_ref}",
+                # f"DOCGUARD_RULE_PACK_VERSION={run.agent.rule_pack_version}",
                 f"DOCGUARD_VISUAL_POLICY={json.dumps(task.review_type.visual_policy, ensure_ascii=False)}",
                 f"INPUT_DOCX={document_path}",
                 f"DOCGUARD_TASK_ID={task.task_id}",

@@ -198,6 +198,7 @@ class AuditProfile(BaseModel):
 
 class AuditAgentDefinition(BaseModel):
     """A versioned specialist that can be registered by one or more review types.
+    !!![IMPORTANT] The manifest will be added to the prompt !!!
 
     Example::
 
