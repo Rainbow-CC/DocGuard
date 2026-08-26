@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
 """Build model-readable audit context and machine-readable evidence from a DOCX extraction."""
-# 输入：位置参数 ``structure`` 为 ``extract_docx_structure.py`` 生成的
-# ``document-structure.json``。必填参数 ``--evidence-output`` 和 ``--context-output``
-# 分别指定机器可读证据 JSON 与供审核模型阅读的 Markdown 上下文文件的目标路径。
-# 输出：``--evidence-output`` 指定的 JSON（通常命名为 ``audit-evidence.json``）包含
-# 内容块、章节、图件候选项、修订信息、警告及关联证据；``--context-output`` 指定的
-# Markdown（通常命名为 ``audit-context.md``）按章节组织审核上下文，并引用 ``block``、
-# ``table`` 和 ``image`` 证据标识。标准输出依次打印 Markdown 和 JSON 的文件路径。
 from __future__ import annotations
 
 import argparse

@@ -1,23 +1,10 @@
 #!/usr/bin/env python3
 """Extract the accepted-view DOCX structure, images, and embedded OLE previews.
 
-输入：位置参数 ``docx`` 为待提取的 Word ``.docx`` 文件；必填参数
-``--output`` 为提取结果目录。可选参数 ``--revision-mode``、``--render-png``、
-``--soffice``、``--pdftoppm`` 和 ``--vector-dpi`` 分别控制修订视图及图片 PNG
-输出：在 ``--output`` 下生成 ``document-structure.json``（可见段落、表格、章节、
-图片、嵌入 OLE 对象、修订摘要和警告）、``block-formatting.json``（逐内容块格式）
-与 ``block-formatting-context.json``（仅含文本内容的章节格式树）。
-同时解出 ``media/`` 图片和 ``embeddings/`` OLE 对象；传入 ``--render-png`` 时
-另生成供视觉审核使用的 ``rendered/*.png``。源 DOCX 不会被修改。
+The default revision mode is ``accept``: deleted and moved-from OOXML content
+is excluded before text, tables, images, and OLE previews are extracted. The
+source DOCX is never modified.
 """
-# 输入：位置参数 ``docx`` 为待提取的 Word ``.docx`` 文件；必填参数
-# ``--output`` 为提取结果目录。可选参数 ``--revision-mode``、``--render-png``、
-# ``--soffice``、``--pdftoppm`` 和 ``--vector-dpi`` 分别控制修订视图及图片 PNG 渲染。
-# 输出：在 ``--output`` 下生成 ``document-structure.json``（可见段落、表格、章节、
-# 图片、嵌入 OLE 对象、修订摘要和警告）、``block-formatting.json``（逐内容块格式）
-# 与 ``block-formatting-context.json``（仅含文本内容的章节格式树）。
-# 同时解出 ``media/`` 图片和 ``embeddings/`` OLE 对象；传入 ``--render-png`` 时，
-# 另生成供视觉审核使用的 ``rendered/*.png``。源 DOCX 不会被修改。
 from __future__ import annotations
 
 import argparse
@@ -332,100 +319,6 @@ def format_table(
             for cell in row.findall("w:tc", NS)
         ])
     return formatted_rows
-
-
-def formatting_block_runs(block: dict[str, object]) -> list[dict[str, object]]:
-    """Return resolved text runs from one paragraph formatting block."""
-    if block.get("type") != "paragraph":
-        return []
-    runs = block.get("runs")
-    return [run for run in runs if isinstance(run, dict)] if isinstance(runs, list) else []
-
-
-def formatting_block_index(block: dict[str, object], fallback: int) -> int:
-    """Return the source block index, with a safe fallback for malformed input."""
-    value = block.get("block_index")
-    return value if type(value) is int else fallback
-
-
-def formatting_block_text(block: dict[str, object]) -> str:
-    """Join visible text runs from a paragraph formatting block."""
-    return "".join(
-        text
-        for run in formatting_block_runs(block)
-        if isinstance(text := run.get("text"), str)
-    )
-
-
-def context_run(run: dict[str, object]) -> dict[str, object]:
-    """Keep the visible text and resolved font needed by text-only audits."""
-    result: dict[str, object] = {"text": run.get("text", "")}
-    for name in ("start", "end"):
-        if type(value := run.get(name)) is int:
-            result[name] = value
-    if isinstance(font := run.get("font"), dict):
-        result["font"] = dict(font)
-    return result
-
-
-def context_text_node(block: dict[str, object], fallback_index: int) -> dict[str, object]:
-    """Build one self-contained paragraph node without formatting provenance."""
-    return {
-        "block_index": formatting_block_index(block, fallback_index),
-        "text": formatting_block_text(block),
-        "style_id": block.get("style_id"),
-        "paragraph": dict(block.get("paragraph")) if isinstance(block.get("paragraph"), dict) else {},
-        "runs": [context_run(run) for run in formatting_block_runs(block)],
-    }
-
-
-def build_block_formatting_context(formatting: dict[str, object]) -> dict[str, object]:
-    """Build an ordered, text-only document tree for self-contained auditing.
-
-    Tables, images, embedded objects, and empty paragraphs are intentionally
-    omitted. Each explicit Word outline heading creates a nested ``section``;
-    other text paragraphs are appended to the active section (or root).
-    """
-    raw_blocks = formatting.get("blocks")
-    blocks = [block for block in raw_blocks if isinstance(block, dict)] if isinstance(raw_blocks, list) else []
-    root_items: list[dict[str, object]] = []
-    section_stack: list[dict[str, object]] = []
-
-    for position, block in enumerate(blocks):
-        if block.get("type") != "paragraph":
-            continue
-        text_node = context_text_node(block, position)
-        if not text_node["text"]:
-            continue
-        heading = block.get("heading")
-        level = heading.get("level") if isinstance(heading, dict) else None
-        if type(level) is int and level >= 1:
-            while section_stack and section_stack[-1]["level"] >= level:
-                section_stack.pop()
-            section = {
-                "kind": "section",
-                "level": level,
-                "heading_basis": heading.get("basis"),
-                "title": text_node,
-                "items": [],
-            }
-            target_items = section_stack[-1]["items"] if section_stack else root_items
-            target_items.append(section)
-            section_stack.append(section)
-            continue
-
-        paragraph = {"kind": "paragraph", **text_node}
-        target_items = section_stack[-1]["items"] if section_stack else root_items
-        target_items.append(paragraph)
-
-    return {
-        "schema_version": "2.0",
-        "generated_from": "block-formatting.json",
-        "content_scope": "text_only",
-        "source": formatting.get("source"),
-        "revisions": formatting.get("revisions"),
-        "items": root_items,
-    }
 
 
 def style_levels(styles_xml: bytes | None) -> dict[str, int]:
@@ -838,16 +731,12 @@ def main() -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
     formatting = result.pop("_formatting")
-    formatting_context = build_block_formatting_context(formatting)
     output = args.output / "document-structure.json"
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     formatting_output = args.output / "block-formatting.json"
     formatting_output.write_text(json.dumps(formatting, ensure_ascii=False, indent=2), encoding="utf-8")
-    formatting_context_output = args.output / "block-formatting-context.json"
-    formatting_context_output.write_text(json.dumps(formatting_context, ensure_ascii=False, indent=2), encoding="utf-8")
     print(output)
     print(formatting_output)
-    print(formatting_context_output)
     return 0
 
 

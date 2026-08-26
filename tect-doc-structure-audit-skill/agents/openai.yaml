@@ -1,0 +1,4 @@
+interface:
+  display_name: "DOCX 格式结构审核"
+  short_description: "基于文本章节树审核 DOCX 的格式与结构。"
+  default_prompt: "使用 $docx-tech-format-audit 基于已提取的文本章节树审核此 DOCX 的格式与结构。"

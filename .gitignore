@@ -15,7 +15,7 @@ deploy/runtime/
 doc-audit-integrate-skill/.obsidian/
 doc-audit-integrate-skill.zip
 README.pdf
-tools/manual-test.txt
+tools/manual-test.md
 tools/test.json
 tools/openclaw-monitor-script.txt
 /review-tmp/
