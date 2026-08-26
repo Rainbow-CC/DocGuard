@@ -32,13 +32,24 @@
    - 调用视觉审核：填写 `DASHSCOPE_API_KEY`。
    - 调用 OpenClaw：填写 `OPENCLAW_GATEWAY_URL` 与 `OPENCLAW_API_TOKEN`。
 
-4. 构建并在后台启动：
+4. 构建镜像并执行一次数据库初始化：
 
    ```bash
-   docker compose -f deploy/compose.yaml up -d --build
+   docker compose -f deploy/compose.yaml build docguard
+   docker compose -f deploy/compose.yaml run --rm --no-deps docguard \
+     /app/.venv/bin/python /app/init/apply_sql.py \
+     --database-path /var/lib/docguard/docguard.sqlite3
    ```
 
-5. 检查运行状态和健康检查：
+   这是运维步骤：它创建 SQLite 文件、表、索引、缓存表和初始审核类型。DocGuard 应用不会在启动时检测、建库或补写初始化数据。
+
+5. 在后台启动服务：
+
+   ```bash
+   docker compose -f deploy/compose.yaml up -d
+   ```
+
+6. 检查运行状态和健康检查：
 
    ```bash
    docker compose -f deploy/compose.yaml ps
@@ -60,5 +71,7 @@ docker compose -f deploy/compose.yaml up -d --build
 # 查看日志
 docker compose -f deploy/compose.yaml logs -f --tail=200 docguard
 ```
+
+如果本次发布变更了 `init/sql/`，应在启动新版本前按“部署步骤”第 4 步重新执行初始化脚本；应用本身不会执行这些 SQL。
 
 不要使用 `docker compose down -v`，也不要删除 `deploy/runtime/`；其中包含 SQLite 数据库、上传文件、审核工件和应用日志。

@@ -11,8 +11,10 @@ class FakeVisionAdapter:
         return VisionResponse(self.adapter_id, self.model, '{"content":"{}"}')
 
 
-def test_visual_cache_keys_on_image_prompt_adapter_and_model(tmp_path) -> None:
-    cache = VisionResponseCache(tmp_path / "vision.sqlite3")
+def test_visual_cache_keys_on_image_prompt_adapter_and_model(tmp_path, provision_database) -> None:
+    database_path = tmp_path / "vision.sqlite3"
+    provision_database(database_path)
+    cache = VisionResponseCache(database_path)
     adapter = FakeVisionAdapter()
 
     first, first_hit = cache.get_or_create(b"png", "prompt", adapter)

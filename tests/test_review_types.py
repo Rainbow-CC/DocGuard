@@ -2,14 +2,14 @@ from hashlib import sha256
 import sqlite3
 
 from docguard.domain.models import AgentBackend, CreateTaskRequest, InputDocument
-from docguard.services.profiles import DEFAULT_TECHNICAL_REVIEW_TYPE, ReviewTypeRegistry
+from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
 
 
-def test_review_type_registry_versions_definitions_and_task_freezes_snapshot(tmp_path) -> None:
-    registry = ReviewTypeRegistry(tmp_path / "docguard.sqlite3")
-    definition = DEFAULT_TECHNICAL_REVIEW_TYPE.model_copy(deep=True)
+def test_review_type_registry_versions_definitions_and_task_freezes_snapshot(review_type_registry) -> None:
+    registry = review_type_registry
+    definition = registry.get("technical-architecture")
     definition.review_type_id = "overview-design"
     definition.version = "2.0.0"
     definition.display_name = "概要设计审核"
@@ -39,12 +39,14 @@ def test_review_type_registry_versions_definitions_and_task_freezes_snapshot(tmp
     assert task.agent_backend is AgentBackend.STUB
 
 
-def test_agents_are_registered_once_and_can_be_reused_by_review_types(tmp_path) -> None:
-    database_path = tmp_path / "docguard.sqlite3"
-    registry = ReviewTypeRegistry(database_path)
-    shared_agent = DEFAULT_TECHNICAL_REVIEW_TYPE.agents[0]
+def test_agents_are_registered_once_and_can_be_reused_by_review_types(
+    review_type_database_path, review_type_registry
+) -> None:
+    database_path = review_type_database_path
+    registry = review_type_registry
+    shared_agent = registry.get("technical-architecture").agents[0]
 
-    second = DEFAULT_TECHNICAL_REVIEW_TYPE.model_copy(deep=True)
+    second = registry.get("technical-architecture")
     second.review_type_id = "overview-design"
     second.version = "1.0.0"
     second.display_name = "概要设计审核"
@@ -65,9 +67,11 @@ def test_agents_are_registered_once_and_can_be_reused_by_review_types(tmp_path) 
     assert registry.get("overview-design").agents == [shared_agent]
 
 
-def test_registry_migrates_legacy_embedded_agent_definitions(tmp_path) -> None:
+def test_registry_migrates_legacy_embedded_agent_definitions(
+    tmp_path, provision_database, technical_review_type
+) -> None:
     database_path = tmp_path / "legacy.sqlite3"
-    legacy_definition = DEFAULT_TECHNICAL_REVIEW_TYPE.model_copy(deep=True)
+    legacy_definition = technical_review_type.model_copy(deep=True)
     legacy_definition.review_type_id = "legacy-review"
     with sqlite3.connect(database_path) as connection:
         connection.execute(
@@ -86,8 +90,9 @@ def test_registry_migrates_legacy_embedded_agent_definitions(tmp_path) -> None:
             ("legacy-review", "1.0.0", legacy_definition.model_dump_json()),
         )
 
+    provision_database(database_path)
     registry = ReviewTypeRegistry(database_path)
 
-    assert registry.get("legacy-review").agents == DEFAULT_TECHNICAL_REVIEW_TYPE.agents
+    assert registry.get("legacy-review").agents == technical_review_type.agents
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM agent_definitions").fetchone()[0] == 1

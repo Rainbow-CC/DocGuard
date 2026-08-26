@@ -7,20 +7,19 @@ from fastapi.testclient import TestClient
 
 from docguard.domain.models import AgentBackend, AuditAgentDefinition, AuditTask, InputDocument
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
-from docguard.services.profiles import DEFAULT_TECHNICAL_REVIEW_TYPE, ProfileRegistry
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
 
 
-def _task() -> AuditTask:
+def _task(technical_review_type) -> AuditTask:
     return AuditTask(
         document=InputDocument(
             filename="sample.docx",
             content_sha256=sha256(b"sample").hexdigest(),
             source_uri="file:///docguard-inbox/reviewer/sample/source.docx",
         ),
-        profile=ProfileRegistry().get("technical-audit"),
-        review_type=DEFAULT_TECHNICAL_REVIEW_TYPE.model_copy(deep=True),
+        profile=technical_review_type.profile,
+        review_type=technical_review_type,
         agent_backend=AgentBackend.OPENCLAW,
     )
 
@@ -116,9 +115,11 @@ def _write_bundle(root: Path, task: AuditTask, attempt_id: str) -> None:
     (evidence_dir / "rendered" / "image-example.png").write_bytes(b"PNG")
 
 
-def test_artifact_validates_structured_evidence_and_projects_safe_view(tmp_path: Path) -> None:
+def test_artifact_validates_structured_evidence_and_projects_safe_view(
+    tmp_path: Path, technical_review_type
+) -> None:
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
-    task = _task()
+    task = _task(technical_review_type)
     attempt = artifacts.prepare(task)
     task.attempts.append(attempt)
     _write_bundle(tmp_path, task, attempt.attempt_id)
@@ -135,9 +136,9 @@ def test_artifact_validates_structured_evidence_and_projects_safe_view(tmp_path:
     assert artifacts.evidence_image_path(task, "image-example").read_bytes() == b"PNG"
 
 
-def test_artifact_rejects_quote_not_in_evidence(tmp_path: Path) -> None:
+def test_artifact_rejects_quote_not_in_evidence(tmp_path: Path, technical_review_type) -> None:
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
-    task = _task()
+    task = _task(technical_review_type)
     attempt = artifacts.prepare(task)
     _write_bundle(tmp_path, task, attempt.attempt_id)
     result_path = tmp_path / task.task_id / attempt.attempt_id / "findings" / "content.findings.json"
@@ -153,9 +154,11 @@ def test_artifact_rejects_quote_not_in_evidence(tmp_path: Path) -> None:
         raise AssertionError("Expected invalid quote to be rejected")
 
 
-def test_artifact_scans_multiple_final_files_and_ignores_temporary_files(tmp_path: Path) -> None:
+def test_artifact_scans_multiple_final_files_and_ignores_temporary_files(
+    tmp_path: Path, technical_review_type
+) -> None:
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
-    task = _task()
+    task = _task(technical_review_type)
     architecture = AuditAgentDefinition(
         agent_id="architecture-advisor",
         version="1.0.0",
@@ -181,17 +184,19 @@ def test_artifact_scans_multiple_final_files_and_ignores_temporary_files(tmp_pat
     assert sum(len(result.findings) for result in results) == 2
 
 
-def test_evidence_api_returns_bundle_and_image(tmp_path: Path, monkeypatch) -> None:
+def test_evidence_api_returns_bundle_and_image(
+    tmp_path: Path, monkeypatch, review_type_registry, technical_review_type
+) -> None:
     api = importlib.import_module("docguard.api.app")
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
     store = InMemoryTaskStore()
-    task = _task()
+    task = _task(technical_review_type)
     attempt = artifacts.prepare(task)
     task.attempts.append(attempt)
     store.create(task)
     _write_bundle(tmp_path, task, attempt.attempt_id)
     monkeypatch.setattr(api, "store", store)
-    monkeypatch.setattr(api, "service", AuditTaskService(store, ProfileRegistry(), artifacts=artifacts))
+    monkeypatch.setattr(api, "service", AuditTaskService(store, review_type_registry, artifacts=artifacts))
 
     client = TestClient(api.app)
     evidence = client.get(f"/api/v1/tasks/{task.task_id}/evidence")

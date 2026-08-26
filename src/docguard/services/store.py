@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from docguard.settings import Settings
+from docguard.services.sqlite import connect_existing_database
 
 from docguard.domain.models import AuditTask, TaskStatus
 
@@ -54,8 +55,6 @@ class SQLiteTaskStore:
 
     def __init__(self, database_path: Path | str) -> None:
         self.database_path = Path(database_path)
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize()
 
     @classmethod
     def from_environment(cls) -> SQLiteTaskStore:
@@ -107,24 +106,7 @@ class SQLiteTaskStore:
             raise KeyError(task.task_id)
         return task
 
-    def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS audit_tasks (
-                    task_id TEXT PRIMARY KEY,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    payload TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_tasks_created_at ON audit_tasks (created_at DESC)"
-            )
-
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=5)
+        connection = connect_existing_database(self.database_path, timeout=5)
         connection.row_factory = sqlite3.Row
         return connection

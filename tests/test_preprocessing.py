@@ -10,16 +10,16 @@ import pytest
 
 from docguard.domain.models import AuditAttempt, CreateTaskRequest, InputDocument
 from docguard.services.preprocessing import PreprocessingError, WslDocxPreprocessor
-from docguard.services.profiles import ProfileRegistry
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
 from docguard.services.vision import VisionResponse, VisionResponseCache
 
 
-def _task():
-    service = AuditTaskService(InMemoryTaskStore(), ProfileRegistry())
+def _task(review_type_registry):
+    service = AuditTaskService(InMemoryTaskStore(), review_type_registry)
     return service.create(
         CreateTaskRequest(
+            review_type_id="technical-architecture",
             document=InputDocument(
                 filename="sample.docx",
                 content_sha256=sha256(b"sample").hexdigest(),
@@ -29,7 +29,7 @@ def _task():
     )
 
 
-def test_wsl_preprocessor_uses_linux_paths_and_runs_vision(monkeypatch) -> None:
+def test_wsl_preprocessor_uses_linux_paths_and_runs_vision(monkeypatch, review_type_registry) -> None:
     captured = {}
 
     def fake_run(command, **kwargs):
@@ -37,7 +37,7 @@ def test_wsl_preprocessor_uses_linux_paths_and_runs_vision(monkeypatch) -> None:
         return CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr("docguard.services.preprocessing.subprocess.run", fake_run)
-    task = _task()
+    task = _task(review_type_registry)
     task.review_type.visual_policy = {"enabled": False}
     attempt = AuditAttempt(input_manifest_uri="pending", result_uri="pending", input_sha256=task.document.content_sha256)
     preprocessor = WslDocxPreprocessor(
@@ -53,12 +53,12 @@ def test_wsl_preprocessor_uses_linux_paths_and_runs_vision(monkeypatch) -> None:
     assert captured["command"][7] == f"/home/ubuntu/docguard-results/{task.task_id}/{attempt.attempt_id}"
 
 
-def test_wsl_preprocessor_surfaces_linux_failure(monkeypatch) -> None:
+def test_wsl_preprocessor_surfaces_linux_failure(monkeypatch, review_type_registry) -> None:
     monkeypatch.setattr(
         "docguard.services.preprocessing.subprocess.run",
         lambda command, **kwargs: CompletedProcess(command, 2, "", "missing soffice"),
     )
-    task = _task()
+    task = _task(review_type_registry)
     task.review_type.visual_policy = {"enabled": False}
     attempt = AuditAttempt(input_manifest_uri="pending", result_uri="pending", input_sha256=task.document.content_sha256)
     preprocessor = WslDocxPreprocessor("/skill", "/results")
@@ -97,11 +97,23 @@ def _vision_work(tmp_path, task, attempt, images: int):
         (rendered / f"image-{index}.png").write_bytes(f"image-{index}".encode())
 
 
-def test_vision_batch_limits_concurrency_to_ten(tmp_path) -> None:
-    task, attempt = _task(), AuditAttempt(input_manifest_uri="pending", result_uri="pending", input_sha256="a" * 64)
+def test_vision_batch_limits_concurrency_to_ten(
+    tmp_path, provision_database, review_type_registry
+) -> None:
+    task, attempt = _task(review_type_registry), AuditAttempt(
+        input_manifest_uri="pending", result_uri="pending", input_sha256="a" * 64
+    )
     adapter = CountingVisionAdapter()
     _vision_work(tmp_path, task, attempt, 11)
-    preprocessor = WslDocxPreprocessor("/skill", "/results", write_root=tmp_path, vision_adapter=adapter, vision_cache=VisionResponseCache(tmp_path / "cache.sqlite3"))
+    cache_database_path = tmp_path / "cache.sqlite3"
+    provision_database(cache_database_path)
+    preprocessor = WslDocxPreprocessor(
+        "/skill",
+        "/results",
+        write_root=tmp_path,
+        vision_adapter=adapter,
+        vision_cache=VisionResponseCache(cache_database_path),
+    )
 
     preprocessor._understand_images(task, attempt)
 
@@ -109,11 +121,23 @@ def test_vision_batch_limits_concurrency_to_ten(tmp_path) -> None:
     assert 1 < adapter.max_active <= 10
 
 
-def test_vision_batch_rejects_more_than_fifty_images_without_calls(tmp_path) -> None:
-    task, attempt = _task(), AuditAttempt(input_manifest_uri="pending", result_uri="pending", input_sha256="a" * 64)
+def test_vision_batch_rejects_more_than_fifty_images_without_calls(
+    tmp_path, provision_database, review_type_registry
+) -> None:
+    task, attempt = _task(review_type_registry), AuditAttempt(
+        input_manifest_uri="pending", result_uri="pending", input_sha256="a" * 64
+    )
     adapter = CountingVisionAdapter()
     _vision_work(tmp_path, task, attempt, 51)
-    preprocessor = WslDocxPreprocessor("/skill", "/results", write_root=tmp_path, vision_adapter=adapter, vision_cache=VisionResponseCache(tmp_path / "cache.sqlite3"))
+    cache_database_path = tmp_path / "cache.sqlite3"
+    provision_database(cache_database_path)
+    preprocessor = WslDocxPreprocessor(
+        "/skill",
+        "/results",
+        write_root=tmp_path,
+        vision_adapter=adapter,
+        vision_cache=VisionResponseCache(cache_database_path),
+    )
 
     with pytest.raises(PreprocessingError, match="maximum is 50"):
         preprocessor._understand_images(task, attempt)

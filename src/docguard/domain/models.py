@@ -260,9 +260,7 @@ class InputDocument(BaseModel):
 
 class CreateTaskRequest(BaseModel):
     document: InputDocument
-    review_type_id: str = "technical-architecture"
-    # Kept as an internal development override.  The web API does not expose it;
-    # production routing always comes from the selected review type definition.
+    review_type_id: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9-]*$")
     agent_backend: AgentBackend | None = None
 
 

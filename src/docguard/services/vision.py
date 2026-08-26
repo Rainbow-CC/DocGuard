@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from docguard.settings import Settings
+from docguard.services.sqlite import connect_existing_database
 
 
 @dataclass(frozen=True)
@@ -64,16 +65,6 @@ class QwenVisionAdapter:
 class VisionResponseCache:
     def __init__(self, database_path: Path | str) -> None:
         self.database_path = Path(database_path)
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
-            connection.execute("""
-                CREATE TABLE IF NOT EXISTS vision_response_cache (
-                    cache_key TEXT PRIMARY KEY, image_sha256 TEXT NOT NULL,
-                    prompt_sha256 TEXT NOT NULL, adapter_id TEXT NOT NULL,
-                    model TEXT NOT NULL, raw_response TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-            """)
 
     @classmethod
     def from_environment(cls) -> "VisionResponseCache":
@@ -93,6 +84,6 @@ class VisionResponseCache:
         return response, False
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=15)
+        connection = connect_existing_database(self.database_path, timeout=15)
         connection.row_factory = sqlite3.Row
         return connection

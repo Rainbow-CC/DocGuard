@@ -59,8 +59,3 @@ def test_upload_rejects_oversized_docx_and_removes_partial_file(tmp_path) -> Non
     assert response.status_code == 413
     assert list((tmp_path / "uploads" / "reviewer").rglob(".source.uploading")) == []
 
-
-
-from pathlib import Path
-from hashlib import sha256
-

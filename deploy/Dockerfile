@@ -24,6 +24,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src ./src
+COPY init ./init
 COPY doc-audit-integrate-skill ./doc-audit-integrate-skill
 COPY README.md ./
 RUN uv sync --frozen --no-dev

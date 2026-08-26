@@ -1,19 +1,21 @@
 from hashlib import sha256
 
 from docguard.domain.models import AgentBackend, AuditTask, InputDocument, TaskStatus
-from docguard.services.profiles import ProfileRegistry
 from docguard.services.store import SQLiteTaskStore
 
 
-def test_sqlite_store_survives_reinitialization(tmp_path) -> None:
+def test_sqlite_store_survives_reinitialization(
+    tmp_path, provision_database, technical_review_type
+) -> None:
     database_path = tmp_path / "docguard.sqlite3"
+    provision_database(database_path)
     task = AuditTask(
         document=InputDocument(
             filename="sample.docx",
             content_sha256=sha256(b"sample").hexdigest(),
             source_uri="file:///docguard-inbox/sample.docx",
         ),
-        profile=ProfileRegistry().get("technical-audit"),
+        profile=technical_review_type.profile,
         agent_backend=AgentBackend.STUB,
     )
 

@@ -6,7 +6,6 @@ from docguard.domain.models import AgentBackend, CreateTaskRequest, InputDocumen
 from docguard.adapters.agents import GatewayExecutionError
 from docguard.services.artifacts import ArtifactStore
 from docguard.services.preprocessing import NoopPreprocessor
-from docguard.services.profiles import ProfileRegistry
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
 
@@ -88,17 +87,18 @@ class ContinuingGateway:
         return "resp_continued"
 
 
-def test_openclaw_result_artifact_completes_task(tmp_path: Path) -> None:
+def test_openclaw_result_artifact_completes_task(tmp_path: Path, review_type_registry) -> None:
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
     service = AuditTaskService(
         InMemoryTaskStore(),
-        ProfileRegistry(),
+        review_type_registry,
         artifacts=artifacts,
         openclaw_gateway=CompletingGateway(tmp_path),
         preprocessor=NoopPreprocessor(),
     )
     task = service.create(
         CreateTaskRequest(
+            review_type_id="technical-architecture",
             document=InputDocument(
                 filename="sample.docx",
                 content_sha256=sha256(b"sample").hexdigest(),
@@ -120,17 +120,20 @@ def test_openclaw_result_artifact_completes_task(tmp_path: Path) -> None:
     assert "术语前后不一致" in (completed.report_markdown or "")
 
 
-def test_sse_disconnect_keeps_task_collecting_for_artifact_reconciliation(tmp_path: Path) -> None:
+def test_sse_disconnect_keeps_task_collecting_for_artifact_reconciliation(
+    tmp_path: Path, review_type_registry
+) -> None:
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
     service = AuditTaskService(
         InMemoryTaskStore(),
-        ProfileRegistry(),
+        review_type_registry,
         artifacts=artifacts,
         openclaw_gateway=DisconnectingGateway(),
         preprocessor=NoopPreprocessor(),
     )
     task = service.create(
         CreateTaskRequest(
+            review_type_id="technical-architecture",
             document=InputDocument(
                 filename="sample.docx",
                 content_sha256=sha256(b"sample").hexdigest(),
@@ -146,11 +149,29 @@ def test_sse_disconnect_keeps_task_collecting_for_artifact_reconciliation(tmp_pa
     assert collecting.attempts[0].error == "OpenClaw transport failure: connection reset"
 
 
-def test_collecting_task_can_continue_in_its_existing_attempt(tmp_path: Path) -> None:
+def test_collecting_task_can_continue_in_its_existing_attempt(
+    tmp_path: Path, review_type_registry
+) -> None:
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
     gateway = ContinuingGateway(tmp_path)
-    service = AuditTaskService(InMemoryTaskStore(), ProfileRegistry(), artifacts=artifacts, openclaw_gateway=gateway, preprocessor=NoopPreprocessor())
-    task = service.create(CreateTaskRequest(document=InputDocument(filename="sample.docx", content_sha256=sha256(b"sample").hexdigest(), source_uri="file:///docguard-inbox/reviewer/sample/source.docx"), agent_backend=AgentBackend.OPENCLAW))
+    service = AuditTaskService(
+        InMemoryTaskStore(),
+        review_type_registry,
+        artifacts=artifacts,
+        openclaw_gateway=gateway,
+        preprocessor=NoopPreprocessor(),
+    )
+    task = service.create(
+        CreateTaskRequest(
+            review_type_id="technical-architecture",
+            document=InputDocument(
+                filename="sample.docx",
+                content_sha256=sha256(b"sample").hexdigest(),
+                source_uri="file:///docguard-inbox/reviewer/sample/source.docx",
+            ),
+            agent_backend=AgentBackend.OPENCLAW,
+        )
+    )
 
     collecting = service.run(task.task_id)
     assert collecting.status is TaskStatus.COLLECTING

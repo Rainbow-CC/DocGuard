@@ -1,5 +1,4 @@
 from docguard.domain.models import Finding
-from docguard.services.profiles import ProfileRegistry
 from docguard.services.reporting import render_markdown
 
 
@@ -30,9 +29,9 @@ def _finding(evidence_refs: list[dict[str, str]]) -> Finding:
     )
 
 
-def test_report_uses_quotes_instead_of_internal_text_evidence_ids() -> None:
+def test_report_uses_quotes_instead_of_internal_text_evidence_ids(technical_review_type) -> None:
     report = render_markdown(
-        ProfileRegistry().get("technical-audit"),
+        technical_review_type.profile,
         [_finding([{"evidence_id": "block:42", "quote": "系统采用同步调用方式", "explanation": "调用方式未说明。"}])],
     )
 
@@ -40,9 +39,9 @@ def test_report_uses_quotes_instead_of_internal_text_evidence_ids() -> None:
     assert "block:42" not in report
 
 
-def test_report_describes_image_by_its_chapter_without_internal_id() -> None:
+def test_report_describes_image_by_its_chapter_without_internal_id(technical_review_type) -> None:
     report = render_markdown(
-        ProfileRegistry().get("technical-audit"),
+        technical_review_type.profile,
         [_finding([{"evidence_id": "image:image-abc", "quote": "网关", "explanation": "图中包含网关。"}])],
         {
             "candidate_images": [
