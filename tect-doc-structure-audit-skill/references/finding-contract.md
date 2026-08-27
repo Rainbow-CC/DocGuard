@@ -1,6 +1,5 @@
 # DocGuard 平台 Finding 契约
 
-所有报告审核 Agent 必须基于 `audit-context.md`、`audit-evidence.json` 和最终可见图件交付可由 DocGuard 校验、展示和渲染的 `findings`。不得输出最终 Markdown 审核报告。
 
 ## 固定约束
 

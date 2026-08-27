@@ -92,7 +92,13 @@ class OpenClawAgentGateway:
             raise GatewayExecutionError("Task has no frozen review type definition")
         request: dict[str, object] = {
             "model": run.agent.agent_model_ref,
-            "user": f"docguard:task:{task.task_id}:agent:{run.agent.agent_id}",
+            # A task can be retried and runs one independent session per specialist.
+            # Keep those trajectories isolated so an action-chain export can identify
+            # exactly one session from task, attempt, and Agent identity.
+            "user": (
+                f"docguard:task:{task.task_id}:attempt:{attempt.attempt_id}:"
+                f"agent:{run.agent.agent_id}"
+            ),
             "stream": True,
             "input": input_text,
         }
@@ -101,6 +107,15 @@ class OpenClawAgentGateway:
         headers = {"Authorization": f"Bearer {self.api_token}"}
         response_id: str | None = None
         event_count = 0
+        request_body = json.dumps(request, ensure_ascii=False, separators=(",", ":"))
+        logger.info(
+            "openclaw.dispatch.request task_id=%s attempt_id=%s agent_id=%s endpoint=%s request_body=%s",
+            task.task_id,
+            attempt.attempt_id,
+            run.agent.agent_id,
+            f"{self.gateway_url}/responses",
+            request_body,
+        )
         logger.info(
             "openclaw.dispatch.started task_id=%s attempt_id=%s endpoint=%s model=%s",
             task.task_id,
@@ -159,7 +174,8 @@ class OpenClawAgentGateway:
         document_path = task.document.source_uri.removeprefix("file://")
         return "\n".join(
             [
-                f"执行 {run.agent.skill_ref} skill。",
+                # f"执行 {run.agent.skill_ref} skill。",
+                f"进行文档审核,必要信息如下:"
                 f"DOCGUARD_AGENT_ID={run.agent.agent_id}",
                 f"DOCGUARD_AGENT_VERSION={run.agent.version}",
                 f"DOCGUARD_DIMENSION={run.agent.dimension}",
@@ -178,10 +194,6 @@ class OpenClawAgentGateway:
                 f"DOCGUARD_EVIDENCE_DIR={result_path.rsplit('/', maxsplit=1)[0]}/evidence",
                 f"DOCGUARD_WORK_DIR={result_path.rsplit('/', maxsplit=1)[0]}/work",
                 "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
-                "只读取 manifest、DOCGUARD_WORK_DIR/audit-context.md、DOCGUARD_WORK_DIR/audit-evidence.json 和 DOCGUARD_WORK_DIR/vision-responses/；不得重新处理 DOCX、调用视觉模型或覆盖 evidence/。",
-                "不得输出最终 Markdown 审核报告。",
-                "只能写入 DOCGUARD_RESULT_FILE；必须先校验结果，再以同目录临时文件加原子重命名交付该文件。",
-                "聊天最终答复只确认工件已写入，不得在答复中输出 findings。",
             ]
         )
 

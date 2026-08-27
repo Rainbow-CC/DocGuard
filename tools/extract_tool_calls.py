@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
 def load_objects(path: Path) -> Iterator[dict[str, Any]]:
     """Yield JSON objects from a JSONL or whitespace-separated JSON file."""
     text = path.read_text(encoding="utf-8-sig")
@@ -47,9 +50,7 @@ def format_timestamp(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value / 1000).astimezone().isoformat(
-            timespec="seconds"
-        )
+        return datetime.fromtimestamp(value / 1000).astimezone().isoformat(timespec="seconds")
     return str(value)
 
 
@@ -79,6 +80,9 @@ def collect_content_items(objects: Iterator[dict[str, Any]]) -> list[dict[str, A
                 "event_line": line_number,
                 "event_seq": event.get("seq"),
                 "timestamp": format_timestamp(event.get("ts")),
+                "session_key": event.get("sessionKey"),
+                "session_id": event.get("sessionId"),
+                "role": message.get("role"),
                 "content_index": content_index,
                 "call_id": item.get("id"),
                 "content_type": item.get("type", "unknown"),
@@ -124,12 +128,25 @@ def find_input_file(input_dir: Path) -> Path:
     if not jsonl_files:
         raise FileNotFoundError(f"输入文件夹中未找到 JSONL 文件：{input_dir}")
     files = "、".join(str(path.relative_to(input_dir)) for path in jsonl_files)
-    raise ValueError(f"输入文件夹中找到多个 JSONL 文件，请保留 trajectory-export/events.jsonl：{files}")
+    raise ValueError(
+        f"输入文件夹中找到多个 JSONL 文件，请保留 trajectory-export/events.jsonl：{files}"
+    )
 
 
-def render_markdown(
-    records: list[dict[str, Any]], input_path: Path, title: str
-) -> str:
+def resolve_input_and_output_dir(input_path: Path) -> tuple[Path, Path]:
+    """Resolve the input JSONL file and the directory for generated Markdown."""
+    if input_path.is_dir():
+        return find_input_file(input_path), input_path
+
+    if input_path.is_file():
+        if input_path.suffix.lower() != ".jsonl":
+            raise ValueError(f"输入文件不是 JSONL 文件：{input_path}")
+        return input_path, PROJECT_ROOT / "trajectory"
+
+    raise FileNotFoundError(f"输入路径不存在：{input_path}")
+
+
+def render_markdown(records: list[dict[str, Any]], input_path: Path, title: str) -> str:
     type_counts: dict[str, int] = {}
     for record in records:
         kind = record["content_type"]
@@ -140,10 +157,31 @@ def render_markdown(
         "",
         f"- 输入文件：`{input_path}`",
         f"- 内容元素数：{len(records)}",
-        "- 类型统计："
-        + "；".join(f"`{kind}` {count} 个" for kind, count in type_counts.items()),
-        "",
+        "- 类型统计：" + "；".join(f"`{kind}` {count} 个" for kind, count in type_counts.items()),
     ]
+    session_keys = sorted(
+        {
+            key
+            for record in records
+            if isinstance((key := record.get("session_key")), str) and key
+        }
+    )
+    session_ids = sorted(
+        {
+            session_id
+            for record in records
+            if isinstance((session_id := record.get("session_id")), str) and session_id
+        }
+    )
+    if len(session_keys) == 1:
+        lines.append(f"- Session Key：`{session_keys[0]}`")
+    elif session_keys:
+        lines.append(f"- Session Key 数：{len(session_keys)}")
+    if len(session_ids) == 1:
+        lines.append(f"- Session ID：`{session_ids[0]}`")
+    elif session_ids:
+        lines.append(f"- Session ID 数：{len(session_ids)}")
+    lines.append("")
     if not records:
         lines.append("未找到 `data.message.content` 中的内容元素。")
         return "\n".join(lines) + "\n"
@@ -156,6 +194,8 @@ def render_markdown(
             lines.append(f"- 事件序号：{record['event_seq']}")
         if record.get("timestamp"):
             lines.append(f"- 时间：`{record['timestamp']}`")
+        if record.get("role"):
+            lines.append(f"- 角色：`{record['role']}`")
         if record.get("call_id"):
             lines.append(f"- 调用 ID：`{record['call_id']}`")
         if record["content_type"] == "toolCall" and record.get("tool_name"):
@@ -176,23 +216,27 @@ def render_markdown(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="从输入文件夹中的 trajectory JSONL 提取完整消息内容和 toolCall，并生成两个 Markdown 文件"
+        description="从输入文件夹或 JSONL 文件提取完整消息内容和 toolCall，并生成两个 Markdown 文件"
     )
-    parser.add_argument("input", type=Path, help="输入文件夹，默认读取其中的 trajectory-export/events.jsonl")
+    parser.add_argument(
+        "input",
+        type=Path,
+        help="输入文件夹（默认读取其中的 trajectory-export/events.jsonl）或 JSONL 文件",
+    )
     args = parser.parse_args()
 
-    input_dir = args.input
-    if not input_dir.is_dir():
-        parser.error(f"输入路径不是文件夹：{input_dir}")
-    input_file = find_input_file(input_dir)
+    try:
+        input_file, output_dir = resolve_input_and_output_dir(args.input)
+    except (FileNotFoundError, ValueError) as exc:
+        parser.error(str(exc))
+
     records = collect_content_items(load_objects(input_file))
-    full_output = input_dir / "output.md"
-    tool_call_output = input_dir / "output-toolCall.md"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    full_output = output_dir / "output.md"
+    tool_call_output = output_dir / "output-toolCall.md"
     tool_calls = [record for record in records if record["content_type"] == "toolCall"]
 
-    full_output.write_text(
-        render_markdown(records, input_file, "消息内容明细"), encoding="utf-8"
-    )
+    full_output.write_text(render_markdown(records, input_file, "消息内容明细"), encoding="utf-8")
     tool_call_output.write_text(
         render_markdown(tool_calls, input_file, "Tool Calls"), encoding="utf-8"
     )

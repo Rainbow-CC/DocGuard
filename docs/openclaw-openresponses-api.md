@@ -111,7 +111,7 @@ DocGuard 的上传接口会将 DOCX 保存到 Agent 可读取的 WSL 路径。�
 ```json
 {
   "model": "openclaw/reviewer",
-  "user": "docguard:task:7d8d8fd3",
+  "user": "docguard:task:7d8d8fd3:attempt:<attempt-id>:agent:<agent-id>",
   "stream": true,
   "input": "待审 DOCX 已保存至 /home/ubuntu/docguard-inbox/reviewer/<upload-id>/source.docx。请按既有工作流和必备工具读取、解析并继续审核。"
 }
@@ -198,13 +198,13 @@ data: [DONE]
 
 ## 5. 会话续接规则
 
-推荐将 DocGuard 的对话 ID 映射为稳定 `user` 值，例如：
+DocGuard 为每个专项 Agent 的每次尝试创建一个稳定会话；推荐将该三元组映射为 `user` 值：
 
 ```text
-docguard:task:<task-id>
+docguard:task:<task-id>:attempt:<attempt-id>:agent:<agent-id>
 ```
 
-同一个任务后续请求保持相同的 `model` 和 `user`，Gateway 会派生并复用同一 Agent 会话。不要把账号级 ID 直接作为 `user`，否则不同文档/对话会共享上下文。
+同一个 AgentRun 的后续请求保持相同的 `model` 和 `user`，Gateway 会派生并复用同一 Agent 会话。`attempt-id` 能隔离任务重试，`agent-id` 能隔离并行专项审核。不要把账号级 ID 直接作为 `user`，否则不同文档/对话会共享上下文。
 
 若使用 `previous_response_id`，必须保持相同的鉴权主体、Agent 和会话范围；它复用之前 Response 对应的会话，而非复制完整历史到当前请求。
 
@@ -231,7 +231,7 @@ curl -N  http://127.0.0.1:18789/v1/responses \
   -H "Content-Type: application/json" \
   -d '{
     "model": "openclaw/default",
-    "user": "docguard:task:7d8d8fd3",
+    "user": "docguard:task:7d8d8fd3:attempt:<attempt-id>:agent:<agent-id>",
     "stream": true,
     "input": "请开始审核。"
   }'
@@ -243,7 +243,7 @@ PowerShell 7（非流式，使用 `curl.exe`）：
 curl.exe "http://127.0.0.1:18789/v1/responses" `
   -H "Authorization: Bearer $env:OPENCLAW_API_TOKEN" `
   -H "Content-Type: application/json" `
-  --data-raw '{"model":"openclaw/default","user":"docguard:task:7d8d8fd3","stream":false,"input":"你安装了文档审核相关的技能。"}'
+  --data-raw '{"model":"openclaw/default","user":"docguard:task:7d8d8fd3:attempt:<attempt-id>:agent:<agent-id>","stream":false,"input":"你安装了文档审核相关的技能。"}'
 ```
 
 PowerShell 7（SSE 流式）：
@@ -252,7 +252,7 @@ PowerShell 7（SSE 流式）：
 curl.exe -N --noproxy "*"  "http://127.0.0.1:18789/v1/responses" `
   -H "Authorization: Bearer $env:OPENCLAW_API_TOKEN" `
   -H "Content-Type: application/json" `
-  --data-raw '{"model":"openclaw/default","user":"docguard:task:7d8d8fd3","stream":true,"input":"待审核文档位于 /home/ubuntu/docguard-inbox/reviewer/afda189f-f5a9-46ab-af41-c13a6e26316a/source.docx  请开始审核"}'
+  --data-raw '{"model":"openclaw/default","user":"docguard:task:7d8d8fd3:attempt:<attempt-id>:agent:<agent-id>","stream":true,"input":"待审核文档位于 /home/ubuntu/docguard-inbox/reviewer/afda189f-f5a9-46ab-af41-c13a6e26316a/source.docx  请开始审核"}'
 ```
 
 ## 来源
