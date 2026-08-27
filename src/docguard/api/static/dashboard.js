@@ -8,6 +8,13 @@
   const reviewTypeName = document.querySelector('#review-type-name');
   const reviewTypeDescription = document.querySelector('#review-type-description');
   const taskFilenameFilter = document.querySelector('#task-filename-filter');
+  const pageTabs = document.querySelector('#page-tabs');
+  const navigationItems = Array.from(document.querySelectorAll('.nav-item[data-page]'));
+  const pagePanels = {
+    home: document.querySelector('#home-page'),
+    audit: document.querySelector('#audit-page'),
+    tasks: document.querySelector('#tasks-page')
+  };
   const elements = {
     title: document.querySelector('#drop-title'), description: document.querySelector('#drop-description'),
     status: document.querySelector('#task-status'), name: document.querySelector('#task-name'), id: document.querySelector('#task-id'),
@@ -27,6 +34,8 @@
   let filenameQuery = '';
   let poller = null;
   let reviewTypes = [];
+  let openPageIds = ['home'];
+  let activePageId = 'home';
   const evidenceCache = new Map();
 
   const backendLabels = { stub: 'STANDARD', openclaw: 'OPENCLAW', langchain: 'LANGCHAIN' };
@@ -34,8 +43,68 @@
   const statusLabels = { queued:'排队中', running:'审核中', collecting:'收集中', retrying:'重试中', completed:'已完成', failed:'失败', cancelled:'已取消' };
   const severityOrder = ['重大', '一般', '优化', '观察'];
   const findingsPerPage = 10;
+  const pageDefinitions = {
+    home: { label: '首页' },
+    audit: { label: '文档审核' },
+    tasks: { label: '任务队列' }
+  };
 
   function setMessage(text = '', kind = '') { message.textContent = text; message.className = `form-message ${kind}`; }
+  function renderPageTabs() {
+    const tabs = openPageIds.map((pageId) => {
+      const page = pageDefinitions[pageId];
+      const tab = document.createElement('div');
+      tab.className = `page-tab${pageId === activePageId ? ' active' : ''}`;
+      tab.dataset.page = pageId;
+      const label = document.createElement('button');
+      label.className = 'page-tab-label';
+      label.type = 'button';
+      label.setAttribute('role', 'tab');
+      label.setAttribute('aria-selected', String(pageId === activePageId));
+      label.setAttribute('aria-controls', `${pageId}-page`);
+      label.textContent = page.label;
+      label.addEventListener('click', () => openPage(pageId, true));
+      tab.append(label);
+      if (pageId !== 'home') {
+        const close = document.createElement('button');
+        close.className = 'page-tab-close';
+        close.type = 'button';
+        close.setAttribute('aria-label', `关闭${page.label}页签`);
+        close.textContent = '×';
+        close.addEventListener('click', (event) => {
+          event.stopPropagation();
+          closePage(pageId);
+        });
+        tab.append(close);
+      }
+      return tab;
+    });
+    pageTabs.replaceChildren(...tabs);
+  }
+  function openPage(pageId, shouldScroll = false) {
+    if (!pageDefinitions[pageId] || !pagePanels[pageId]) return;
+    if (!openPageIds.includes(pageId)) openPageIds.push(pageId);
+    activePageId = pageId;
+    Object.entries(pagePanels).forEach(([id, panel]) => { panel.hidden = id !== pageId; });
+    navigationItems.forEach((item) => {
+      const active = item.dataset.page === pageId;
+      item.classList.toggle('active', active);
+      if (active) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    });
+    renderPageTabs();
+    if (shouldScroll) window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function closePage(pageId) {
+    if (pageId === 'home') return;
+    const closingIndex = openPageIds.indexOf(pageId);
+    if (closingIndex === -1) return;
+    openPageIds.splice(closingIndex, 1);
+    if (activePageId === pageId) {
+      activePageId = openPageIds[Math.min(closingIndex, openPageIds.length - 1)] || 'home';
+    }
+    openPage(activePageId);
+  }
   function updateReviewTypeDescription() {
     const selected = reviewTypes.find((item) => item.review_type_id === reviewType.value);
     reviewTypeName.textContent = selected ? `${selected.display_name} · v${selected.version}` : '—';
@@ -217,6 +286,11 @@
     renderTaskList(); renderSelectedTask(); updatePolling();
   }
 
+  navigationItems.forEach((item) => item.addEventListener('click', (event) => {
+    event.preventDefault();
+    openPage(item.dataset.page, true);
+  }));
+  openPage('home');
   dropZone.addEventListener('click', () => fileInput.click()); dropZone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); } });
   fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
   reviewType.addEventListener('change', updateReviewTypeDescription);

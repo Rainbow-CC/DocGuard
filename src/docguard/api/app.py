@@ -40,7 +40,7 @@ app.state.upload_storage = UploadStorage(
 _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
-_DASHBOARD_ASSET_VERSION = "task-expand-v2"
+_DASHBOARD_ASSET_VERSION = "brand-logo-v1"
 
 
 def get_upload_storage(request: Request) -> UploadStorage:

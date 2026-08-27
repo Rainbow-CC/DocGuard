@@ -3,78 +3,99 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f4f7f5">
-  <title>DocGuard</title>
+  <meta name="theme-color" content="#0e3daa">
+  <title>DocGuard 技术文档审核平台</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/dashboard.css') }}?v={{ dashboard_asset_version }}">
 </head>
 <body>
-  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
-  <main class="shell">
-    <header class="topbar">
+  <header class="app-header">
+    <div class="app-header-inner">
       <a class="brand" href="/" aria-label="DocGuard 首页">
-        <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span>DOC<span>GUARD</span></span>
+        <img class="brand-logo" src="{{ url_for('static', path='/logo.jpg') }}?v={{ dashboard_asset_version }}" alt="兴业国际信托有限公司">
+        <span class="brand-divider" aria-hidden="true"></span>
+        <span class="brand-title"><strong>DOCGUARD</strong><span>技术文档审核平台</span></span>
       </a>
-      <div class="topbar-meta"><span class="live-dot"></span>审核控制台 <span class="divider"></span> TEST </div>
-    </header>
-
-    <section class="hero">
-      <div>
-        <p class="eyebrow">DOCUMENT ASSURANCE PLATFORM</p>
-        <h2>CIIT技术文档审核平台<br><em></em></h2>
-        <p class="hero-copy">将架构、合规与交付风险归集为可追溯的审核证据。</p>
+      <nav class="main-nav" aria-label="主菜单">
+        <a class="nav-item active" href="#home-page" data-page="home" aria-current="page">首页</a>
+        <a class="nav-item" href="#audit-page" data-page="audit">文档审核</a>
+        <a class="nav-item" href="#tasks-page" data-page="tasks">任务队列</a>
+      </nav>
+      <div class="header-actions">
+        <button id="user-management-button" class="user-management-button" type="button" aria-disabled="true" title="用户管理功能暂未开放">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.25"></circle><path d="M5.5 19c.8-3.15 3.02-4.75 6.5-4.75s5.7 1.6 6.5 4.75"></path></svg>
+          <span>用户管理</span><i aria-hidden="true">⌄</i>
+        </button>
       </div>
-      <div class="hero-stat" aria-label="系统状态">
-        <span>服务状态</span><strong><b></b> OPERATIVE</strong><small>/ v0.1.0</small>
+    </div>
+  </header>
+  <div class="page-tabbar" aria-label="当前页面">
+    <div class="page-tabbar-inner">
+      <div id="page-tabs" class="page-tabs" role="tablist" aria-label="已打开页面">
+        <div class="page-tab active" data-page="home">
+          <button class="page-tab-label" type="button" role="tab" aria-selected="true" aria-controls="home-page">首页</button>
+        </div>
       </div>
-    </section>
+    </div>
+  </div>
+  <main id="dashboard" class="shell">
+    <section id="home-page" class="page-panel home-page" role="tabpanel" aria-label="首页"></section>
 
-    <section class="workspace" aria-label="新建审核">
-      <div class="section-heading"><span class="section-index">01</span><div><p>NEW MANDATE</p><h2>发起文档审核</h2></div><span class="rule"></span></div>
-      <form id="audit-form" novalidate>
-        <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="选择 DOCX 文件">
-          <input id="document-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
-          <div class="file-glyph"><span></span><span></span><span></span></div>
-          <div class="drop-copy"><strong id="drop-title">上传待审文件</strong><span id="drop-description">拖放 DOCX 文件至此处，或 <u>浏览文件</u></span></div>
-          <span class="file-limit">DOCX · 最大 100 MB</span>
+    <section id="audit-page" class="page-panel audit-page" role="tabpanel" aria-label="文档审核" hidden>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">DOCUMENT AUDIT PLATFORM</p>
+          <h1>技术文档审核工作台</h1>
+          <p class="hero-copy">上传待审文档，集中跟踪审核过程与可追溯的风险证据。</p>
         </div>
-
-        <div class="form-row">
-          <label class="field-label">报告类型
-            <span class="select-wrap"><select id="review-type" name="review-type" disabled><option>加载审核类型中…</option></select></span>
-          </label>
-          <div class="profile-note"><span>审核说明</span><strong id="review-type-name">—</strong><small id="review-type-description">请选择平台提供的报告审核类型</small></div>
-          <button id="submit-button" class="primary-button" type="submit"><span>开始审核</span><b>↗</b></button>
+        <div class="hero-stat" aria-label="系统状态">
+          <span>服务状态</span><strong><b></b>服务正常</strong><small>DocGuard v0.1.0</small>
         </div>
-      </form>
-      <p id="form-message" class="form-message" role="status"></p>
-    </section>
-
-    <section class="monitor" aria-label="审核任务状态">
-      <div class="section-heading"><span class="section-index">02</span><div><p>LIVE MONITOR</p><h2>任务队列</h2></div><span class="rule"></span><label class="task-filter"><span class="sr-only">按原文件名筛选任务</span><input id="task-filename-filter" type="search" placeholder="按原文件名筛选" autocomplete="off"></label><span id="refresh-label" class="refresh-label">加载任务中</span></div>
-      <div id="task-list" class="task-list" aria-live="polite"></div>
-      <article id="task-card" class="task-card task-empty" hidden>
-        <div class="task-primary"><div id="task-status" class="status-pill neutral">未开始</div><div><h3 id="task-name">尚未提交审核文件</h3><p id="task-id">提交 DOCX 后将在此跟踪审核进度</p></div></div>
-        <div class="task-metrics"><div><span>发现项</span><strong id="findings-count">—</strong></div><div><span>执行器</span><strong id="backend-name">—</strong></div><div><span>更新时间</span><strong id="updated-at">—</strong></div></div>
-        <div class="task-actions"><button id="continue-button" class="details-button" type="button" hidden>继续任务 <span>↻</span></button><button id="details-button" class="details-button" type="button" hidden>查看详情 <span>↗</span></button><a id="report-link" class="report-link disabled" href="#" aria-disabled="true">获取报告 <span>↓</span></a>{% if action_chain_export_enabled %}<a id="action-chain-link" class="report-link disabled" href="#" aria-disabled="true">查看行动链 <span>↓</span></a>{% endif %}</div>
-      </article>
-      <section id="findings-summary" class="findings-summary" aria-label="风险发现概览" hidden>
-        <div class="findings-header"><span>风险发现概览</span><small id="findings-summary-description"></small></div>
-        <div id="findings-summary-metrics" class="findings-summary-metrics"></div>
       </section>
-      <div id="findings-panel" class="findings-panel" hidden>
-        <div class="findings-header"><span>全部风险发现</span><small id="findings-description"></small></div>
-        <div id="findings-list" class="findings-list"></div>
-        <nav id="findings-pagination" class="findings-pagination" aria-label="问题分页"></nav>
-      </div>
+
+      <section id="audit-workspace" class="workspace" aria-label="新建审核">
+        <div class="section-heading"><span class="section-index">01</span><div><p>NEW MANDATE</p><h2>发起文档审核</h2></div><span class="rule"></span></div>
+        <form id="audit-form" novalidate>
+          <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="选择 DOCX 文件">
+            <input id="document-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+            <div class="file-glyph"><span></span><span></span><span></span></div>
+            <div class="drop-copy"><strong id="drop-title">上传待审文件</strong><span id="drop-description">拖放 DOCX 文件至此处，或 <u>浏览文件</u></span></div>
+            <span class="file-limit">DOCX · 最大 100 MB</span>
+          </div>
+
+          <div class="form-row">
+            <label class="field-label">报告类型
+              <span class="select-wrap"><select id="review-type" name="review-type" disabled><option>加载审核类型中…</option></select></span>
+            </label>
+            <div class="profile-note"><span>审核说明</span><strong id="review-type-name">—</strong><small id="review-type-description">请选择平台提供的报告审核类型</small></div>
+            <button id="submit-button" class="primary-button" type="submit"><span>开始审核</span><b>↗</b></button>
+          </div>
+        </form>
+        <p id="form-message" class="form-message" role="status"></p>
+      </section>
+      <footer><span>DOCGUARD / CONTROL ROOM</span><span>SECURED DOCUMENT INTELLIGENCE</span></footer>
     </section>
 
-<!--    <section class="principles">-->
-<!--      <div><span>01</span><strong>证据可定位</strong><p>每项判断均需关联原始证据。</p></div>-->
-<!--      <div><span>02</span><strong>结果可复核</strong><p>结构化 Findings 由程序统一校验。</p></div>-->
-<!--      <div><span>03</span><strong>报告可交付</strong><p>一键导出标准化审核报告。</p></div>-->
-<!--    </section>-->
-    <footer><span>DOCGUARD / CONTROL ROOM</span><span>SECURED DOCUMENT INTELLIGENCE</span></footer>
+    <section id="tasks-page" class="page-panel tasks-page" role="tabpanel" aria-label="任务队列" hidden>
+      <section id="task-monitor" class="monitor" aria-label="审核任务状态">
+        <div class="section-heading"><span class="section-index">02</span><div><p>LIVE MONITOR</p><h2>任务队列</h2></div><span class="rule"></span><label class="task-filter"><span class="sr-only">按原文件名筛选任务</span><input id="task-filename-filter" type="search" placeholder="按原文件名筛选" autocomplete="off"></label><span id="refresh-label" class="refresh-label">加载任务中</span></div>
+        <div id="task-list" class="task-list" aria-live="polite"></div>
+        <article id="task-card" class="task-card task-empty" hidden>
+          <div class="task-primary"><div id="task-status" class="status-pill neutral">未开始</div><div><h3 id="task-name">尚未提交审核文件</h3><p id="task-id">提交 DOCX 后将在此跟踪审核进度</p></div></div>
+          <div class="task-metrics"><div><span>发现项</span><strong id="findings-count">—</strong></div><div><span>执行器</span><strong id="backend-name">—</strong></div><div><span>更新时间</span><strong id="updated-at">—</strong></div></div>
+          <div class="task-actions"><button id="continue-button" class="details-button" type="button" hidden>继续任务 <span>↻</span></button><button id="details-button" class="details-button" type="button" hidden>查看详情 <span>↗</span></button><a id="report-link" class="report-link disabled" href="#" aria-disabled="true">获取报告 <span>↓</span></a>{% if action_chain_export_enabled %}<a id="action-chain-link" class="report-link disabled" href="#" aria-disabled="true">查看行动链 <span>↓</span></a>{% endif %}</div>
+        </article>
+        <section id="findings-summary" class="findings-summary" aria-label="风险发现概览" hidden>
+          <div class="findings-header"><span>风险发现概览</span><small id="findings-summary-description"></small></div>
+          <div id="findings-summary-metrics" class="findings-summary-metrics"></div>
+        </section>
+        <div id="findings-panel" class="findings-panel" hidden>
+          <div class="findings-header"><span>全部风险发现</span><small id="findings-description"></small></div>
+          <div id="findings-list" class="findings-list"></div>
+          <nav id="findings-pagination" class="findings-pagination" aria-label="问题分页"></nav>
+        </div>
+      </section>
+    </section>
+
   </main>
   <aside id="evidence-drawer" class="evidence-drawer" aria-label="证据复核" aria-hidden="true" hidden>
     <div class="evidence-drawer-head"><div><small>TRACEABLE EVIDENCE</small><h2 id="evidence-title">证据复核</h2></div><button id="evidence-close" class="evidence-close" type="button" aria-label="关闭证据">×</button></div>

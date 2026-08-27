@@ -16,9 +16,17 @@ def test_dashboard_and_assets_are_served() -> None:
     assert 'id="findings-pagination"' in page.text
     assert 'id="task-filename-filter"' in page.text
     assert 'id="review-type"' in page.text
-    assert 'dashboard.js?v=task-expand-v2' in page.text
+    assert 'class="brand-logo"' in page.text
+    assert 'logo.jpg?v=brand-logo-v1' in page.text
+    assert 'id="user-management-button"' in page.text
+    assert 'id="home-page"' in page.text
+    assert 'id="audit-page"' in page.text
+    assert 'id="tasks-page"' in page.text
+    assert 'id="page-tabs"' in page.text
+    assert 'dashboard.js?v=brand-logo-v1' in page.text
     assert client.get("/static/dashboard.css").status_code == 200
     assert client.get("/static/dashboard.js").status_code == 200
+    assert client.get("/static/logo.jpg").status_code == 200
 
 
 def test_task_list_endpoint_returns_a_list() -> None:
