@@ -18,6 +18,7 @@ from docguard.domain.models import (
 from docguard.logging_config import configure_logging
 from docguard.settings import Settings
 from docguard.services.action_chains import ActionChainUnavailableError, OpenClawActionChainExporter
+from docguard.services.approval_rules import ApprovalRuleCatalog
 from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.store import SQLiteTaskStore
 from docguard.services.tasks import AuditTaskService
@@ -40,7 +41,8 @@ app.state.upload_storage = UploadStorage(
 _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
-_DASHBOARD_ASSET_VERSION = "brand-logo-v1"
+approval_rules = ApprovalRuleCatalog(_WEB_ROOT / "approval_rules")
+_DASHBOARD_ASSET_VERSION = "approval-rules-v1"
 
 
 def get_upload_storage(request: Request) -> UploadStorage:
@@ -77,6 +79,21 @@ def list_review_types():
         }
         for definition in review_types.list()
     ]
+
+
+@app.get("/api/v1/approval-rules")
+def list_approval_rules():
+    """List the Markdown-backed approval-rule documents shown in the console menu."""
+    return [rule.as_summary() for rule in approval_rules.list()]
+
+
+@app.get("/api/v1/approval-rules/{rule_id}")
+def get_approval_rule(rule_id: str):
+    """Return one rendered rule document and its navigable heading outline."""
+    try:
+        return approval_rules.get(rule_id).as_detail()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Approval rule not found") from exc
 
 
 @app.post("/api/v1/tasks", response_model=TaskCreatedResponse, status_code=status.HTTP_202_ACCEPTED)

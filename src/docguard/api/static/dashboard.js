@@ -10,10 +10,14 @@
   const taskFilenameFilter = document.querySelector('#task-filename-filter');
   const pageTabs = document.querySelector('#page-tabs');
   const navigationItems = Array.from(document.querySelectorAll('.nav-item[data-page]'));
+  const approvalRulesMenu = document.querySelector('#approval-rules-menu');
+  const approvalRulesTrigger = document.querySelector('#approval-rules-trigger');
+  const approvalRulesDropdown = document.querySelector('#approval-rules-dropdown');
   const pagePanels = {
     home: document.querySelector('#home-page'),
     audit: document.querySelector('#audit-page'),
-    tasks: document.querySelector('#tasks-page')
+    tasks: document.querySelector('#tasks-page'),
+    'approval-rules': document.querySelector('#approval-rules-page')
   };
   const elements = {
     title: document.querySelector('#drop-title'), description: document.querySelector('#drop-description'),
@@ -25,6 +29,12 @@
     taskList: document.querySelector('#task-list'), evidenceDrawer: document.querySelector('#evidence-drawer'), evidenceTitle: document.querySelector('#evidence-title'),
     evidenceContent: document.querySelector('#evidence-content'), evidenceClose: document.querySelector('#evidence-close'), evidenceBackdrop: document.querySelector('#evidence-backdrop')
   };
+  const approvalRuleElements = {
+    outline: document.querySelector('#approval-rules-outline'),
+    title: document.querySelector('#approval-rule-title'),
+    description: document.querySelector('#approval-rule-description'),
+    markdown: document.querySelector('#approval-rule-markdown')
+  };
   let selectedFile = null;
   let selectedTaskId = null;
   let taskSelectionInitialized = false;
@@ -34,6 +44,8 @@
   let filenameQuery = '';
   let poller = null;
   let reviewTypes = [];
+  let approvalRules = [];
+  let activeApprovalRuleId = null;
   let openPageIds = ['home'];
   let activePageId = 'home';
   const evidenceCache = new Map();
@@ -46,7 +58,8 @@
   const pageDefinitions = {
     home: { label: '首页' },
     audit: { label: '文档审核' },
-    tasks: { label: '任务队列' }
+    tasks: { label: '任务队列' },
+    'approval-rules': { label: '审批规则' }
   };
 
   function setMessage(text = '', kind = '') { message.textContent = text; message.className = `form-message ${kind}`; }
@@ -92,6 +105,8 @@
       if (active) item.setAttribute('aria-current', 'page');
       else item.removeAttribute('aria-current');
     });
+    approvalRulesTrigger.classList.toggle('active', pageId === 'approval-rules');
+    if (pageId !== 'approval-rules') setApprovalRulesMenuOpen(false);
     renderPageTabs();
     if (shouldScroll) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -121,6 +136,97 @@
     });
     reviewType.disabled = reviewTypes.length === 0;
     updateReviewTypeDescription();
+  }
+  function approvalRuleStatus(text, kind = '') {
+    const status = document.createElement('p');
+    status.className = `approval-rule-reader-status ${kind}`;
+    status.textContent = text;
+    return status;
+  }
+  function setApprovalRulesMenuOpen(open) {
+    approvalRulesMenu.classList.toggle('is-open', open);
+    approvalRulesTrigger.setAttribute('aria-expanded', String(open));
+  }
+  function renderApprovalRulesMenu() {
+    approvalRulesDropdown.replaceChildren();
+    if (!approvalRules.length) {
+      approvalRulesDropdown.append(approvalRuleStatus('暂未配置审批规则。'));
+      return;
+    }
+    approvalRules.forEach((rule) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = `approval-rules-menu-item${rule.rule_id === activeApprovalRuleId ? ' selected' : ''}`;
+      item.setAttribute('role', 'menuitem');
+      const title = document.createElement('strong'); title.textContent = rule.title;
+      const description = document.createElement('small'); description.textContent = rule.description || '查看审批规则';
+      item.append(title, description);
+      item.addEventListener('click', () => {
+        setApprovalRulesMenuOpen(false);
+        openApprovalRule(rule.rule_id);
+      });
+      approvalRulesDropdown.append(item);
+    });
+  }
+  function renderApprovalRuleOutline(outline) {
+    approvalRuleElements.outline.replaceChildren();
+    if (!outline.length) {
+      approvalRuleElements.outline.append(approvalRuleStatus('此规则暂无可导航的标题。'));
+      return;
+    }
+    outline.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `approval-rules-outline-item outline-level-${item.level}`;
+      button.textContent = item.title;
+      button.addEventListener('click', () => {
+        const target = document.getElementById(item.anchor);
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.tabIndex = -1;
+        target.focus({ preventScroll: true });
+      });
+      approvalRuleElements.outline.append(button);
+    });
+  }
+  async function loadApprovalRules() {
+    try {
+      const response = await fetch('/api/v1/approval-rules');
+      if (!response.ok) throw new Error('无法加载审批规则');
+      const payload = await response.json();
+      if (!Array.isArray(payload)) throw new Error('审批规则目录格式无效');
+      approvalRules = payload;
+      renderApprovalRulesMenu();
+    } catch (error) {
+      approvalRules = [];
+      approvalRulesDropdown.replaceChildren(approvalRuleStatus(error.message || '审批规则不可用。', 'error'));
+      throw error;
+    }
+  }
+  async function openApprovalRule(ruleId) {
+    const summary = approvalRules.find((rule) => rule.rule_id === ruleId);
+    activeApprovalRuleId = ruleId;
+    renderApprovalRulesMenu();
+    openPage('approval-rules', true);
+    approvalRuleElements.title.textContent = summary?.title || '审批规则';
+    approvalRuleElements.description.textContent = summary?.description || '正在加载规则内容。';
+    approvalRuleElements.outline.replaceChildren(approvalRuleStatus('正在加载章节大纲…'));
+    approvalRuleElements.markdown.replaceChildren(approvalRuleStatus('正在加载 Markdown 规则内容…'));
+    try {
+      const response = await fetch(`/api/v1/approval-rules/${encodeURIComponent(ruleId)}`);
+      if (!response.ok) throw new Error((await response.json()).detail || '无法加载审批规则内容');
+      const rule = await response.json();
+      if (activeApprovalRuleId !== ruleId) return;
+      approvalRuleElements.title.textContent = rule.title;
+      approvalRuleElements.description.textContent = rule.description || '该规则未提供摘要。';
+      // The server renders Markdown with raw HTML disabled before this assignment.
+      approvalRuleElements.markdown.innerHTML = rule.html;
+      renderApprovalRuleOutline(Array.isArray(rule.outline) ? rule.outline : []);
+    } catch (error) {
+      if (activeApprovalRuleId !== ruleId) return;
+      approvalRuleElements.outline.replaceChildren(approvalRuleStatus('章节大纲不可用。', 'error'));
+      approvalRuleElements.markdown.replaceChildren(approvalRuleStatus(error.message || '规则内容加载失败。', 'error'));
+    }
   }
   function setFile(file) {
     if (!file) return;
@@ -290,6 +396,20 @@
     event.preventDefault();
     openPage(item.dataset.page, true);
   }));
+  approvalRulesTrigger.addEventListener('click', () => {
+    setApprovalRulesMenuOpen(!approvalRulesMenu.classList.contains('is-open'));
+  });
+  approvalRulesMenu.addEventListener('pointerenter', () => setApprovalRulesMenuOpen(true));
+  approvalRulesMenu.addEventListener('pointerleave', () => setApprovalRulesMenuOpen(false));
+  approvalRulesMenu.addEventListener('focusin', () => setApprovalRulesMenuOpen(true));
+  approvalRulesMenu.addEventListener('focusout', () => {
+    window.setTimeout(() => {
+      if (!approvalRulesMenu.contains(document.activeElement)) setApprovalRulesMenuOpen(false);
+    }, 0);
+  });
+  document.addEventListener('click', (event) => {
+    if (!approvalRulesMenu.contains(event.target)) setApprovalRulesMenuOpen(false);
+  });
   openPage('home');
   dropZone.addEventListener('click', () => fileInput.click()); dropZone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); } });
   fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
@@ -325,6 +445,11 @@
     } catch (error) { setMessage(error.message || '继续任务失败，请稍后重试。', 'error'); }
     finally { elements.continue.disabled = false; elements.continue.querySelector('span').textContent = '↻'; }
   });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeEvidence(); });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    closeEvidence();
+    setApprovalRulesMenuOpen(false);
+  });
   Promise.all([loadReviewTypes(), refreshTasks()]).catch((error) => { elements.refresh.textContent = '任务列表不可用'; setMessage(error.message, 'error'); });
+  loadApprovalRules().catch(() => {});
 })();

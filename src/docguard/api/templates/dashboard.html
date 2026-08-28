@@ -19,6 +19,14 @@
         <a class="nav-item active" href="#home-page" data-page="home" aria-current="page">首页</a>
         <a class="nav-item" href="#audit-page" data-page="audit">文档审核</a>
         <a class="nav-item" href="#tasks-page" data-page="tasks">任务队列</a>
+        <div id="approval-rules-menu" class="approval-rules-menu">
+          <button id="approval-rules-trigger" class="nav-item approval-rules-trigger" type="button" aria-haspopup="true" aria-controls="approval-rules-dropdown" aria-expanded="false">
+            <span>审批规则</span><i aria-hidden="true">⌄</i>
+          </button>
+          <div id="approval-rules-dropdown" class="approval-rules-dropdown" role="menu" aria-label="审批规则类型">
+            <p class="approval-rules-menu-status">加载审批规则中…</p>
+          </div>
+        </div>
       </nav>
       <div class="header-actions">
         <button id="user-management-button" class="user-management-button" type="button" aria-disabled="true" title="用户管理功能暂未开放">
@@ -46,9 +54,6 @@
           <p class="eyebrow">DOCUMENT AUDIT PLATFORM</p>
           <h1>技术文档审核工作台</h1>
           <p class="hero-copy">上传待审文档，集中跟踪审核过程与可追溯的风险证据。</p>
-        </div>
-        <div class="hero-stat" aria-label="系统状态">
-          <span>服务状态</span><strong><b></b>服务正常</strong><small>DocGuard v0.1.0</small>
         </div>
       </section>
 
@@ -93,6 +98,32 @@
           <div id="findings-list" class="findings-list"></div>
           <nav id="findings-pagination" class="findings-pagination" aria-label="问题分页"></nav>
         </div>
+      </section>
+    </section>
+
+    <section id="approval-rules-page" class="page-panel approval-rules-page" role="tabpanel" aria-label="审批规则" hidden>
+<!--      <section class="approval-rules-hero">-->
+<!--        <p class="eyebrow">APPROVAL RULES</p>-->
+<!--        <h1>审批规则中心</h1>-->
+<!--        <p class="hero-copy">选择一种审核类型，查看可维护的 Markdown 审批规则及其章节大纲。</p>-->
+<!--      </section>-->
+      <section class="approval-rules-reader" aria-label="审批规则阅读器">
+        <aside class="approval-rules-outline-panel">
+          <div class="approval-rules-outline-heading"><p>DOCUMENT OUTLINE</p><h2>规则大纲</h2></div>
+          <nav id="approval-rules-outline" class="approval-rules-outline" aria-label="规则章节大纲">
+            <p class="approval-rule-reader-status">请选择上方菜单中的规则类型。</p>
+          </nav>
+        </aside>
+        <article class="approval-rule-document">
+          <header class="approval-rule-document-head">
+            <p>APPROVAL RULE</p>
+            <h1 id="approval-rule-title">选择审批规则</h1>
+            <p id="approval-rule-description">每个规则类型由一个独立的 Markdown 文件维护。</p>
+          </header>
+          <div id="approval-rule-markdown" class="approval-rule-markdown" aria-live="polite">
+            <p class="approval-rule-reader-status">规则内容会在这里显示。</p>
+          </div>
+        </article>
       </section>
     </section>
 
