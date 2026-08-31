@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import platform
 from datetime import datetime
 
 from docguard.adapters.agents import (
+    DshAgentGateway,
     GatewayExecutionError,
     OpenClawAgentGateway,
     OpenClawAttemptGateway,
@@ -20,12 +22,24 @@ from docguard.domain.models import (
 from docguard.graph.audit_graph import build_audit_graph
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
 from docguard.services.profiles import ReviewTypeRegistry
-from docguard.services.preprocessing import AuditPreprocessor, PreprocessingError, WslDocxPreprocessor
+from docguard.services.preprocessing import (
+    AuditPreprocessor,
+    BashDocxPreprocessor,
+    PreprocessingError,
+    WslDocxPreprocessor,
+)
 from docguard.services.reporting import render_markdown
 from docguard.services.store import TaskStore
 
 _UNSET = object()
 logger = logging.getLogger("docguard.tasks")
+
+
+def _default_preprocessor() -> AuditPreprocessor:
+    """Pick WslDocxPreprocessor on Windows, BashDocxPreprocessor on macOS/Linux."""
+    if platform.system() == "Windows":
+        return WslDocxPreprocessor.from_environment()
+    return BashDocxPreprocessor.from_environment()
 
 
 class AuditTaskService:
@@ -35,13 +49,15 @@ class AuditTaskService:
         review_types: ReviewTypeRegistry,
         artifacts: ArtifactStore | None = None,
         openclaw_gateway: OpenClawAttemptGateway | None = None,
+        dsh_gateway: OpenClawAttemptGateway | None = None,
         preprocessor: AuditPreprocessor | None = None,
     ) -> None:
         self.store = store
         self.review_types = review_types
         self.artifacts = artifacts or ArtifactStore.from_environment()
         self.openclaw_gateway = openclaw_gateway or OpenClawAgentGateway()
-        self.preprocessor = preprocessor or WslDocxPreprocessor.from_environment()
+        self.dsh_gateway = dsh_gateway or DshAgentGateway()
+        self.preprocessor = preprocessor or _default_preprocessor()
 
     def create(self, request: CreateTaskRequest) -> AuditTask:
         review_type = self.review_types.get(request.review_type_id)
@@ -72,6 +88,8 @@ class AuditTaskService:
         task.checkpoint_thread_id = task.task_id
         if task.agent_backend is AgentBackend.OPENCLAW:
             return self._run_openclaw(task)
+        if task.agent_backend is AgentBackend.DSH:
+            return self._run_dsh(task)
         try:
             graph = build_audit_graph(graph_gateway_for(task.agent_backend))
             result = graph.invoke({"task": task}, {"configurable": {"thread_id": task.task_id}})
@@ -138,19 +156,21 @@ class AuditTaskService:
         return reconciled
 
     def continue_collecting(self, task_id: str) -> AuditTask:
-        """Prompt a disconnected OpenClaw task to continue in its existing session."""
+        """Prompt a disconnected OpenClaw or DSH task to continue in its existing session."""
         task = self.store.get(task_id)
         if task.status is not TaskStatus.COLLECTING:
             raise ValueError(f"Task {task_id} is not collecting")
-        if task.agent_backend is not AgentBackend.OPENCLAW:
-            raise ValueError(f"Task {task_id} does not use the OpenClaw backend")
+        if task.agent_backend not in (AgentBackend.OPENCLAW, AgentBackend.DSH):
+            raise ValueError(f"Task {task_id} does not use the OpenClaw or DSH backend")
 
         attempt = self._attempt(task, None)
         self._set_attempt_status(attempt, AttemptStatus.RUNNING, None)
         self.store.update(task, status=TaskStatus.RUNNING, error=None)
-        logger.info("task.openclaw.continue_started task_id=%s attempt_id=%s", task_id, attempt.attempt_id)
+        gateway = self.openclaw_gateway if task.agent_backend is AgentBackend.OPENCLAW else self.dsh_gateway
+        backend_name = "openclaw" if task.agent_backend is AgentBackend.OPENCLAW else "dsh"
+        logger.info(f"task.{backend_name}.continue_started task_id=%s attempt_id=%s", task_id, attempt.attempt_id)
         try:
-            response_id = self.openclaw_gateway.continue_attempt(task, attempt)
+            response_id = gateway.continue_attempt(task, attempt)
             if response_id:
                 attempt.gateway_response_id = response_id
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
@@ -158,7 +178,7 @@ class AuditTaskService:
             # Keep the task actionable: another continuation may still reach the agent.
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING, str(exc))
             logger.exception(
-                "task.openclaw.continue_error task_id=%s attempt_id=%s error=%s",
+                f"task.{backend_name}.continue_error task_id=%s attempt_id=%s error=%s",
                 task_id,
                 attempt.attempt_id,
                 exc,
@@ -198,6 +218,40 @@ class AuditTaskService:
                 exc,
             )
         # Persist SSE metadata before reconciliation reloads the task from a durable store.
+        self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
+        return self.collect(task.task_id, attempt.attempt_id)
+
+    def _run_dsh(self, task: AuditTask) -> AuditTask:
+        logger.info("task.dsh.prepare_started task_id=%s", task.task_id)
+        attempt = self.artifacts.prepare(task)
+        task.attempts.append(attempt)
+        self._set_attempt_status(attempt, AttemptStatus.RUNNING)
+        self.store.update(task, status=TaskStatus.RUNNING)
+        try:
+            self.preprocessor.prepare(task, attempt)
+        except PreprocessingError as exc:
+            self._set_attempt_status(attempt, AttemptStatus.FAILED, str(exc))
+            logger.exception("task.preprocessing.failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
+            return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
+        try:
+            session_id = self.dsh_gateway.execute_attempt(task, attempt)
+            if session_id:
+                attempt.gateway_response_id = session_id
+            self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
+            logger.info(
+                "task.dsh.gateway_finished task_id=%s attempt_id=%s session_id=%s",
+                task.task_id,
+                attempt.attempt_id,
+                session_id,
+            )
+        except GatewayExecutionError as exc:
+            self._set_attempt_status(attempt, AttemptStatus.COLLECTING, str(exc))
+            logger.exception(
+                "task.dsh.gateway_error task_id=%s attempt_id=%s error=%s",
+                task.task_id,
+                attempt.attempt_id,
+                exc,
+            )
         self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
         return self.collect(task.task_id, attempt.attempt_id)
 

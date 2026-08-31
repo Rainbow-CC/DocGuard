@@ -36,6 +36,7 @@ class AgentBackend(StrEnum):
     STUB = "stub"
     OPENCLAW = "openclaw"
     LANGCHAIN = "langchain"
+    DSH = "dsh"
 
 
 class Severity(StrEnum):
@@ -195,8 +196,8 @@ class ReviewTypeDefinition(BaseModel):
     version: str
     display_name: str
     description: str
-    agent_backend: AgentBackend = AgentBackend.OPENCLAW
-    agent_model_ref: str
+    agent_backend: AgentBackend = AgentBackend.DSH
+    agent_model_ref: str = ""
     skill_ref: str
     core_contract_version: int = Field(ge=1)
     rule_pack_ref: str

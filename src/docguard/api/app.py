@@ -9,6 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
+from docguard.logging_config import configure_logging
+
 from docguard.domain.models import (
     AgentBackend,
     CreateTaskRequest,
@@ -16,22 +18,26 @@ from docguard.domain.models import (
     TaskStatus,
     UploadDocumentResponse,
 )
-from docguard.logging_config import configure_logging
-from docguard.services.action_chains import ActionChainUnavailableError, OpenClawActionChainExporter
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+configure_logging()
+from docguard.services.action_chains import (
+    ActionChainUnavailableError,
+    DshActionChainExporter,
+    OpenClawActionChainExporter,
+)
 from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.store import SQLiteTaskStore
 from docguard.services.tasks import AuditTaskService
 from docguard.services.uploads import UploadStorage, UploadTooLargeError, UploadValidationError
 
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env")
-configure_logging()
 logger = logging.getLogger("docguard.api")
 
 store = SQLiteTaskStore.from_environment()
 review_types = ReviewTypeRegistry(store.database_path)
 service = AuditTaskService(store, review_types)
-action_chain_exporter = OpenClawActionChainExporter(service.artifacts)
+openclaw_action_chain_exporter = OpenClawActionChainExporter(service.artifacts)
+dsh_action_chain_exporter = DshActionChainExporter(service.artifacts)
 app = FastAPI(title="DocGuard", version="0.1.0")
 app.state.upload_storage = UploadStorage.from_environment()
 
@@ -53,7 +59,7 @@ def dashboard(request: Request):
         name="dashboard.html",
         context={
             "dashboard_asset_version": _DASHBOARD_ASSET_VERSION,
-            "action_chain_export_enabled": action_chain_exporter.enabled,
+            "action_chain_export_enabled": openclaw_action_chain_exporter.enabled or dsh_action_chain_exporter.enabled,
         },
     )
 
@@ -202,13 +208,19 @@ def download_task_report(task_id: str) -> Response:
 
 @app.get("/api/v1/tasks/{task_id}/action-chain.md")
 def download_task_action_chain(task_id: str) -> FileResponse:
-    """Export and download the full OpenClaw trajectory for development diagnostics."""
+    """Export and download the full session trajectory for development diagnostics."""
     try:
         task = store.get(task_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Task not found") from exc
+    if task.agent_backend is AgentBackend.OPENCLAW:
+        exporter = openclaw_action_chain_exporter
+    elif task.agent_backend is AgentBackend.DSH:
+        exporter = dsh_action_chain_exporter
+    else:
+        raise HTTPException(status_code=409, detail="该 backend 不支持行动链导出")
     try:
-        path = action_chain_exporter.download_path(task)
+        path = exporter.download_path(task)
     except ActionChainUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     filename = f"docguard-action-chain-{task.task_id}.md"

@@ -172,6 +172,162 @@ class OpenClawAgentGateway:
             ]
         )
 
+class DshAgentGateway:
+    """Dispatches an audit skill through DSH API Gateway; results arrive as an artifact."""
+
+    def __init__(self, gateway_url: str | None = None, api_key: str | None = None) -> None:
+        self.gateway_url = (gateway_url or os.getenv("DSH_GATEWAY_URL", "")).rstrip("/")
+        self.api_key = api_key or os.getenv("DSH_API_KEY", "")
+
+    def execute_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None:
+        """Create a DSH session, stream SSE, and return the session id.
+
+        The agent must atomically deliver findings.json to the task's result directory.
+        """
+        if not self.gateway_url or not self.api_key:
+            logger.error(
+                "dsh.dispatch.configuration_missing task_id=%s attempt_id=%s "
+                "gateway_url_configured=%s api_key_configured=%s",
+                task.task_id,
+                attempt.attempt_id,
+                bool(self.gateway_url),
+                bool(self.api_key),
+            )
+            raise GatewayExecutionError("DSH_GATEWAY_URL and DSH_API_KEY must be configured")
+
+        return self._stream_attempt(task, attempt, self._prompt(task, attempt))
+
+    def continue_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None:
+        """Continue the task's existing DSH session and collect its SSE."""
+        if not attempt.gateway_response_id:
+            raise GatewayExecutionError("No gateway_response_id for continuing DSH session")
+        return self._stream_attempt(
+            task, attempt,
+            "当前任务若未完成审核，则继续审核，否则告诉我已完成",
+            previous_session_id=attempt.gateway_response_id,
+        )
+
+    def _stream_attempt(
+        self,
+        task: AuditTask,
+        attempt: AuditAttempt,
+        input_text: str,
+        *,
+        previous_session_id: str | None = None,
+    ) -> str | None:
+        if task.review_type is None:
+            raise GatewayExecutionError("Task has no frozen review type definition")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+
+        # Step 1: Create or adopt session
+        if previous_session_id:
+            session_id = previous_session_id
+        else:
+            session_id = self._create_session(headers)
+            logger.info(
+                "dsh.session.created task_id=%s attempt_id=%s session_id=%s",
+                task.task_id,
+                attempt.attempt_id,
+                session_id,
+            )
+
+        # Step 2: Start SSE stream
+        stream_url = f"{self.gateway_url}/sessions/{session_id}/stream"
+        timeout = httpx.Timeout(connect=10.0, read=900.0, write=60.0, pool=60.0)
+
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                # First attach to SSE stream (must be before sending message)
+                stream_response = client.get(
+                    stream_url,
+                    headers={"Authorization": f"Bearer {self.api_key}", "Accept": "text/event-stream"},
+                )
+                stream_response.raise_for_status()
+
+                # Step 3: Send message
+                message_url = f"{self.gateway_url}/sessions/{session_id}/messages"
+                message_response = client.post(
+                    message_url,
+                    headers=headers,
+                    json={"content": input_text},
+                )
+                message_response.raise_for_status()
+
+                # Step 4: Read SSE events until turn_end
+                event_count = 0
+                for event, payload in _iter_sse_events(stream_response):
+                    event_count += 1
+                    print(
+                        "dsh.sse "
+                        f"task_id={task.task_id} attempt_id={attempt.attempt_id} "
+                        f"event={event} payload={payload!r}",
+                        flush=True,
+                    )
+                    if event == "turn_end":
+                        logger.info(
+                            "dsh.dispatch.finished task_id=%s attempt_id=%s session_id=%s sse_events=%s",
+                            task.task_id,
+                            attempt.attempt_id,
+                            session_id,
+                            event_count,
+                        )
+                        break
+
+        except httpx.HTTPError as exc:
+            logger.exception(
+                "dsh.dispatch.transport_failed task_id=%s attempt_id=%s",
+                task.task_id,
+                attempt.attempt_id,
+            )
+            raise GatewayExecutionError(f"DSH transport failure: {exc}") from exc
+
+        return session_id
+
+    def _create_session(self, headers: dict[str, str]) -> str:
+        """Create a new DSH session and return its id."""
+        create_url = f"{self.gateway_url}/sessions"
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(create_url, headers=headers, json={})
+            response.raise_for_status()
+            data = response.json()
+            return data["sessionId"]
+
+    @staticmethod
+    def _prompt(task: AuditTask, attempt: AuditAttempt) -> str:
+        if task.review_type is None:
+            raise GatewayExecutionError("Task has no frozen review type definition")
+        manifest_path = attempt.input_manifest_uri.removeprefix("file://")
+        result_path = attempt.result_uri.removeprefix("file://")
+        document_path = task.document.source_uri.removeprefix("file://")
+        return "\n".join(
+            [
+                f"执行 {task.review_type.skill_ref} skill。",
+                f"DOCGUARD_REVIEW_TYPE={task.review_type.review_type_id}",
+                f"DOCGUARD_REVIEW_TYPE_VERSION={task.review_type.version}",
+                f"DOCGUARD_CORE_CONTRACT_VERSION={task.review_type.core_contract_version}",
+                f"DOCGUARD_RULE_PACK={task.review_type.rule_pack_ref}",
+                f"DOCGUARD_RULE_PACK_VERSION={task.review_type.rule_pack_version}",
+                f"DOCGUARD_VISUAL_POLICY={json.dumps(task.review_type.visual_policy, ensure_ascii=False)}",
+                f"INPUT_DOCX={document_path}",
+                f"DOCGUARD_TASK_ID={task.task_id}",
+                f"DOCGUARD_ATTEMPT_ID={attempt.attempt_id}",
+                f"DOCGUARD_AUDIT_MANIFEST={manifest_path}",
+                f"DOCGUARD_RESULT_FILE={result_path}",
+                f"DOCGUARD_EVIDENCE_DIR={result_path.rsplit('/', maxsplit=1)[0]}/evidence",
+                f"DOCGUARD_WORK_DIR={result_path.rsplit('/', maxsplit=1)[0]}/work",
+                "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
+                "只读取 manifest、DOCGUARD_WORK_DIR/audit-context.md、DOCGUARD_WORK_DIR/audit-evidence.json 和 DOCGUARD_WORK_DIR/vision-responses/；不得重新处理 DOCX、调用视觉模型或覆盖 evidence/。",
+                "不得输出最终 Markdown 审核报告。",
+                "必须先校验结果，再以同目录临时文件加原子重命名交付 findings.json。",
+                "聊天最终答复只确认工件已写入，不得在答复中输出 findings。",
+            ]
+        )
+
+
 class LangChainAgentGateway:
     """Integration seam for a LangChain structured-output runnable."""
 
@@ -193,8 +349,8 @@ class LangChainAgentGateway:
 def graph_gateway_for(backend: AgentBackend) -> GraphAuditGateway:
     """Create a gateway that can synchronously supply findings to ``audit_graph``.
 
-    OpenClaw deliberately does not implement this contract: its result is a durable
-    artifact that may arrive after the SSE request finishes or disconnects.
+    OpenClaw and DSH deliberately do not implement this contract: their results are
+    durable artifacts that may arrive after the SSE request finishes or disconnects.
     """
     match backend:
         case AgentBackend.STUB:
@@ -204,6 +360,10 @@ def graph_gateway_for(backend: AgentBackend) -> GraphAuditGateway:
         case AgentBackend.OPENCLAW:
             raise ValueError(
                 "OpenClaw is artifact-delivered; use the OpenClaw attempt path instead of audit_graph"
+            )
+        case AgentBackend.DSH:
+            raise ValueError(
+                "DSH is artifact-delivered; use the DSH attempt path instead of audit_graph"
             )
 
 
