@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 SQL_DIRECTORY = Path(__file__).with_name("sql")
+DEFAULT_PROJECT_ID = "default"
 
 
 def provision_database(database_path: Path | str) -> list[str]:
@@ -26,6 +27,7 @@ def provision_database(database_path: Path | str) -> list[str]:
         for script in scripts:
             connection.executescript(script.read_text(encoding="utf-8"))
         _upgrade_legacy_embedded_agents(connection)
+        _upgrade_audit_task_projects(connection)
     return [script.name for script in scripts]
 
 
@@ -69,6 +71,66 @@ def _upgrade_legacy_embedded_agents(connection: sqlite3.Connection) -> None:
                 row["version"],
             ),
         )
+
+
+def _upgrade_audit_task_projects(connection: sqlite3.Connection) -> None:
+    """Associate pre-project task rows with the reserved default project.
+
+    SQLite cannot add a non-null foreign-key column with a non-null default while
+    foreign keys are enabled.  The initial schema has the full constraint for new
+    installations; this operation upgrades old installations by adding the same
+    required column and trigger-backed reference validation.
+    """
+
+    columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(audit_tasks)").fetchall()
+    }
+    if "project_id" not in columns:
+        connection.execute(
+            "ALTER TABLE audit_tasks ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default'"
+        )
+    connection.execute(
+        """
+        UPDATE audit_tasks
+        SET project_id = ?
+        WHERE project_id IS NULL OR trim(project_id) = ''
+        """,
+        (DEFAULT_PROJECT_ID,),
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audit_tasks_project_id ON audit_tasks (project_id)"
+    )
+    connection.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS audit_tasks_project_must_exist_on_insert
+        BEFORE INSERT ON audit_tasks
+        FOR EACH ROW
+        WHEN NEW.project_id IS NULL
+          OR trim(NEW.project_id) = ''
+          OR NOT EXISTS (SELECT 1 FROM projects WHERE project_id = NEW.project_id)
+        BEGIN
+            SELECT RAISE(ABORT, 'audit_tasks.project_id must reference an existing project');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS audit_tasks_project_must_exist_on_update
+        BEFORE UPDATE OF project_id ON audit_tasks
+        FOR EACH ROW
+        WHEN NEW.project_id IS NULL
+          OR trim(NEW.project_id) = ''
+          OR NOT EXISTS (SELECT 1 FROM projects WHERE project_id = NEW.project_id)
+        BEGIN
+            SELECT RAISE(ABORT, 'audit_tasks.project_id must reference an existing project');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS projects_with_audit_tasks_cannot_be_deleted
+        BEFORE DELETE ON projects
+        FOR EACH ROW
+        WHEN EXISTS (SELECT 1 FROM audit_tasks WHERE project_id = OLD.project_id)
+        BEGIN
+            SELECT RAISE(ABORT, 'projects referenced by audit tasks cannot be deleted');
+        END;
+        """
+    )
 
 
 def _replace_agent_assignments(

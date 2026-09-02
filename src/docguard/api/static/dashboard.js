@@ -4,9 +4,23 @@
   const dropZone = document.querySelector('#drop-zone');
   const button = document.querySelector('#submit-button');
   const message = document.querySelector('#form-message');
+  const project = document.querySelector('#project');
+  const createProjectButton = document.querySelector('#create-project-button');
+  const projectDialog = document.querySelector('#project-dialog');
+  const projectDialogBackdrop = document.querySelector('#project-dialog-backdrop');
+  const projectDialogClose = document.querySelector('#project-dialog-close');
+  const projectCancelButton = document.querySelector('#project-cancel-button');
+  const projectForm = document.querySelector('#project-form');
+  const projectFormMessage = document.querySelector('#project-form-message');
+  const projectSubmitButton = document.querySelector('#project-submit-button');
+  const projectIdInput = document.querySelector('#project-id');
+  const projectNameInput = document.querySelector('#project-name');
+  const projectOwnerInput = document.querySelector('#project-owner');
+  const projectDescriptionInput = document.querySelector('#project-description');
   const reviewType = document.querySelector('#review-type');
   const reviewTypeName = document.querySelector('#review-type-name');
   const reviewTypeDescription = document.querySelector('#review-type-description');
+  const taskProjectFilter = document.querySelector('#task-project-filter');
   const taskFilenameFilter = document.querySelector('#task-filename-filter');
   const pageTabs = document.querySelector('#page-tabs');
   const navigationItems = Array.from(document.querySelectorAll('.nav-item[data-page]'));
@@ -43,6 +57,10 @@
   let tasks = [];
   let filenameQuery = '';
   let poller = null;
+  let projects = [];
+  let allProjects = [];
+  let preferredProjectId = null;
+  let taskProjectId = 'default';
   let reviewTypes = [];
   let approvalRules = [];
   let activeApprovalRuleId = null;
@@ -124,6 +142,99 @@
     const selected = reviewTypes.find((item) => item.review_type_id === reviewType.value);
     reviewTypeName.textContent = selected ? `${selected.display_name} · v${selected.version}` : '—';
     reviewTypeDescription.textContent = selected?.description || '请选择平台提供的报告审核类型';
+  }
+  async function loadProjects(projectIdToSelect = null) {
+    if (projectIdToSelect) preferredProjectId = projectIdToSelect;
+    const currentProjectId = preferredProjectId || project.value;
+    const response = await fetch('/api/v1/projects?include_archived=true');
+    if (!response.ok) throw new Error('无法加载可用项目');
+    allProjects = await response.json();
+    projects = allProjects.filter((item) => item.status === 'active');
+    project.replaceChildren();
+    projects.forEach((item) => {
+      const option = document.createElement('option'); option.value = item.project_id;
+      option.textContent = item.name === item.project_id ? item.name : `${item.name} · ${item.project_id}`;
+      project.append(option);
+    });
+    project.disabled = projects.length === 0;
+    if (projects.some((item) => item.project_id === currentProjectId)) {
+      project.value = currentProjectId;
+      if (preferredProjectId === currentProjectId) preferredProjectId = null;
+    }
+    renderTaskProjectFilter();
+  }
+  function taskProjectDefinitions() {
+    const definitions = new Map(allProjects.map((item) => [item.project_id, item]));
+    tasks.forEach((task) => {
+      const projectId = task.project_id || 'default';
+      if (!definitions.has(projectId)) definitions.set(projectId, {project_id: projectId, name: projectId, status: 'archived'});
+    });
+    return [...definitions.values()];
+  }
+  function renderTaskProjectFilter() {
+    const definitions = taskProjectDefinitions();
+    taskProjectFilter.replaceChildren();
+    const allOption = document.createElement('option'); allOption.value = ''; allOption.textContent = '全部项目'; taskProjectFilter.append(allOption);
+    definitions.forEach((item) => {
+      const option = document.createElement('option'); option.value = item.project_id;
+      option.textContent = item.name === item.project_id ? item.name : `${item.name} · ${item.project_id}`;
+      if (item.status === 'archived') option.textContent += '（已归档）';
+      taskProjectFilter.append(option);
+    });
+    if (definitions.some((item) => item.project_id === taskProjectId)) taskProjectFilter.value = taskProjectId;
+    else if (taskProjectId && definitions.length) {
+      taskProjectId = definitions.some((item) => item.project_id === 'default') ? 'default' : '';
+      taskProjectFilter.value = taskProjectId;
+    }
+    taskProjectFilter.disabled = definitions.length === 0;
+  }
+  function setTaskProjectFilter(projectId) {
+    taskProjectId = projectId || '';
+    renderTaskProjectFilter();
+    renderTaskList();
+    renderSelectedTask();
+    updatePolling();
+  }
+  function setProjectFormMessage(text = '') { projectFormMessage.textContent = text; }
+  function closeProjectDialog() {
+    projectDialog.hidden = true;
+    projectDialogBackdrop.hidden = true;
+    projectDialog.setAttribute('aria-hidden', 'true');
+    projectForm.reset();
+    setProjectFormMessage();
+  }
+  function openProjectDialog() {
+    projectForm.reset();
+    setProjectFormMessage();
+    projectDialog.hidden = false;
+    projectDialogBackdrop.hidden = false;
+    projectDialog.setAttribute('aria-hidden', 'false');
+    window.setTimeout(() => projectIdInput.focus(), 0);
+  }
+  async function submitProject(event) {
+    event.preventDefault();
+    projectSubmitButton.disabled = true;
+    projectSubmitButton.querySelector('span').textContent = '创建中';
+    setProjectFormMessage();
+    try {
+      const response = await fetch('/api/v1/projects', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          project_id: projectIdInput.value.trim(),
+          name: projectNameInput.value.trim(),
+          owner: projectOwnerInput.value.trim() || null,
+          description: projectDescriptionInput.value.trim() || null
+        })
+      });
+      if (!response.ok) throw new Error((await response.json()).detail || '项目创建失败');
+      const created = await response.json();
+      await loadProjects(created.project_id);
+      setTaskProjectFilter(created.project_id);
+      closeProjectDialog();
+      setMessage(`项目「${created.name}」已创建并选中。`, 'success');
+    } catch (error) { setProjectFormMessage(error.message || '项目创建失败，请稍后重试。'); }
+    finally { projectSubmitButton.disabled = false; projectSubmitButton.querySelector('span').textContent = '创建项目'; }
   }
   async function loadReviewTypes() {
     const response = await fetch('/api/v1/review-types');
@@ -240,7 +351,10 @@
   function normalizedFilename(value) { return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, ''); }
   function visibleTasks() {
     const query = normalizedFilename(filenameQuery);
-    return query ? tasks.filter((task) => normalizedFilename(task.document?.filename).includes(query)) : tasks;
+    return tasks.filter((task) => {
+      const matchesProject = !taskProjectId || (task.project_id || 'default') === taskProjectId;
+      return matchesProject && (!query || normalizedFilename(task.document?.filename).includes(query));
+    });
   }
 
   function renderTaskList() {
@@ -259,15 +373,16 @@
         renderSelectedTask();
       });
       const status = document.createElement('span'); status.className = `status-pill ${task.status}`; status.textContent = statusLabel(task.status);
-      const file = document.createElement('span'); file.className = 'task-file'; const name = document.createElement('strong'); name.textContent = task.document.filename; const id = document.createElement('small'); id.textContent = `TASK / ${task.task_id.slice(0, 8)}`; file.append(name, id);
+      const file = document.createElement('span'); file.className = 'task-file'; const name = document.createElement('strong'); name.textContent = task.document.filename; const id = document.createElement('small'); id.textContent = `TASK / ${task.task_id.slice(0, 8)} · 项目 / ${task.project_id || 'default'}`; file.append(name, id);
       const backendMetric = document.createElement('span'); backendMetric.className = 'queue-metric'; backendMetric.innerHTML = `<span>执行器</span><strong>${backendLabels[task.agent_backend] || String(task.agent_backend).toUpperCase()}</strong>`;
       const findingMetric = document.createElement('span'); findingMetric.className = 'queue-metric'; findingMetric.innerHTML = `<span>发现项</span><strong>${task.findings?.length ?? 0}</strong>`;
       const updated = document.createElement('time'); updated.dateTime = task.updated_at; updated.textContent = formatTime(task.updated_at);
       const open = document.createElement('span'); open.className = 'queue-open'; open.textContent = task.task_id === selectedTaskId ? '已展开 ↘' : '查看 ↗';
       row.append(status, file, backendMetric, findingMetric, updated, open); return row;
     });
-    if (filenameQuery.trim() && rows.length === 0) {
-      const empty = document.createElement('p'); empty.className = 'task-list-empty'; empty.textContent = '未找到名称匹配的任务。'; rows.push(empty);
+    if (rows.length === 0 && (filenameQuery.trim() || taskProjectId)) {
+      const empty = document.createElement('p'); empty.className = 'task-list-empty';
+      empty.textContent = filenameQuery.trim() ? '未找到名称匹配的任务。' : '当前项目下没有审核任务。'; rows.push(empty);
     }
     elements.taskList.replaceChildren(...rows);
   }
@@ -382,11 +497,13 @@
     const active = tasks.some((task) => !terminalStates.has(task.status));
     if (active && !poller) poller = setInterval(() => refreshTasks().catch(() => {}), 2000);
     if (!active && poller) { clearInterval(poller); poller = null; }
-    elements.refresh.textContent = tasks.length === 0 ? '等待任务' : active ? `监测 ${tasks.filter((task) => !terminalStates.has(task.status)).length} 个进行中任务 · 每 2 秒刷新` : `${tasks.length} 个任务 · 已停止刷新`;
+    const scope = taskProjectId ? ` · 当前项目 ${visibleTasks().length} 个` : '';
+    elements.refresh.textContent = tasks.length === 0 ? '等待任务' : active ? `监测 ${tasks.filter((task) => !terminalStates.has(task.status)).length} 个进行中任务${scope} · 每 2 秒刷新` : `${tasks.length} 个任务${scope} · 已停止刷新`;
   }
   async function refreshTasks() {
     const response = await fetch('/api/v1/tasks'); if (!response.ok) throw new Error('无法获取任务列表');
     tasks = await response.json();
+    renderTaskProjectFilter();
     if (selectedTaskId && !tasks.some((task) => task.task_id === selectedTaskId)) selectedTaskId = null;
     if (!taskSelectionInitialized) { selectedTaskId = tasks[0]?.task_id || null; taskSelectionInitialized = true; }
     renderTaskList(); renderSelectedTask(); updatePolling();
@@ -413,7 +530,14 @@
   openPage('home');
   dropZone.addEventListener('click', () => fileInput.click()); dropZone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); } });
   fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+  createProjectButton.addEventListener('click', openProjectDialog);
+  projectDialogClose.addEventListener('click', closeProjectDialog);
+  projectCancelButton.addEventListener('click', closeProjectDialog);
+  projectDialogBackdrop.addEventListener('click', closeProjectDialog);
+  projectForm.addEventListener('submit', submitProject);
+  project.addEventListener('change', () => setTaskProjectFilter(project.value));
   reviewType.addEventListener('change', updateReviewTypeDescription);
+  taskProjectFilter.addEventListener('change', () => setTaskProjectFilter(taskProjectFilter.value));
   taskFilenameFilter.addEventListener('input', () => { filenameQuery = taskFilenameFilter.value; renderTaskList(); renderSelectedTask(); });
   ['dragenter','dragover'].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
   ['dragleave','drop'].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));
@@ -426,8 +550,10 @@
       const uploadResponse = await fetch(`/api/v1/agents/${agentId()}/uploads`, { method:'POST', body:upload });
       if (!uploadResponse.ok) throw new Error((await uploadResponse.json()).detail || '文件上传失败');
       const stored = await uploadResponse.json(); button.querySelector('span').textContent = '提交中';
+      if (!project.value) throw new Error('请先选择所属项目');
       if (!reviewType.value) throw new Error('请先选择报告类型');
-      const taskResponse = await fetch('/api/v1/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ document:{ filename:stored.filename, content_sha256:stored.content_sha256, source_uri:stored.source_uri }, review_type_id:reviewType.value }) });
+      setTaskProjectFilter(project.value);
+      const taskResponse = await fetch('/api/v1/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ document:{ filename:stored.filename, content_sha256:stored.content_sha256, source_uri:stored.source_uri }, project_id:project.value, review_type_id:reviewType.value }) });
       if (!taskResponse.ok) throw new Error((await taskResponse.json()).detail || '任务创建失败');
       const task = await taskResponse.json(); selectedTaskId = task.task_id; await refreshTasks(); setMessage('新任务已加入队列；其他审核任务将继续独立监测。', 'success');
     } catch (error) { setMessage(error.message || '请求未能完成，请稍后重试。', 'error'); }
@@ -448,8 +574,9 @@
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     closeEvidence();
+    closeProjectDialog();
     setApprovalRulesMenuOpen(false);
   });
-  Promise.all([loadReviewTypes(), refreshTasks()]).catch((error) => { elements.refresh.textContent = '任务列表不可用'; setMessage(error.message, 'error'); });
+  Promise.all([loadProjects(), loadReviewTypes(), refreshTasks()]).catch((error) => { elements.refresh.textContent = '任务列表不可用'; setMessage(error.message, 'error'); });
   loadApprovalRules().catch(() => {});
 })();

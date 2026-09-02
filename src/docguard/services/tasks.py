@@ -18,10 +18,12 @@ from docguard.domain.models import (
     AuditAttempt,
     AuditTask,
     CreateTaskRequest,
+    ProjectStatus,
     TaskStatus,
 )
 from docguard.graph.audit_graph import build_audit_graph
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
+from docguard.services.projects import InMemoryProjectStore, ProjectStore
 from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.preprocessing import AuditPreprocessor, PreprocessingError, WslDocxPreprocessor
 from docguard.services.reporting import render_markdown
@@ -37,6 +39,7 @@ class AuditTaskService:
         self,
         store: TaskStore,
         review_types: ReviewTypeRegistry,
+        projects: ProjectStore | None = None,
         artifacts: ArtifactStore | None = None,
         agent_gateway: AgentGateway | None = None,
         preprocessor: AuditPreprocessor | None = None,
@@ -45,6 +48,7 @@ class AuditTaskService:
         settings = settings or Settings.from_environment()
         self.store = store
         self.review_types = review_types
+        self.projects = projects or InMemoryProjectStore()
         self.artifacts = artifacts or ArtifactStore(settings.result_write_root, settings.result_agent_root)
         self.agent_gateway = agent_gateway or OpenClawAgentGateway(
             settings.openclaw_gateway_url, settings.openclaw_api_token
@@ -58,12 +62,16 @@ class AuditTaskService:
         )
 
     def create(self, request: CreateTaskRequest) -> AuditTask:
+        project = self.projects.get(request.project_id)
+        if project.status is not ProjectStatus.ACTIVE:
+            raise ValueError(f"Project {project.project_id} is archived and cannot accept new audit tasks")
         review_type = self.review_types.get(request.review_type_id)
         agents = review_type.resolved_agents()
         if not agents:
             raise KeyError(f"Review type {request.review_type_id} has no registered agents")
         backend = request.agent_backend or agents[0].agent_backend
         task = AuditTask(
+            project_id=project.project_id,
             document=request.document,
             profile=review_type.profile,
             review_type=review_type,
@@ -71,8 +79,9 @@ class AuditTaskService:
         )
         created = self.store.create(task)
         logger.info(
-            "task.created task_id=%s backend=%s review_type=%s@%s filename=%s",
+            "task.created task_id=%s project_id=%s backend=%s review_type=%s@%s filename=%s",
             created.task_id,
+            created.project_id,
             created.agent_backend.value,
             created.review_type.review_type_id,
             created.review_type.version,
@@ -263,7 +272,7 @@ class AuditTaskService:
             self._set_agent_run_status(run, AgentRunStatus.RUNNING)
             try:
                 return run, self.agent_gateway.execute_attempt(task, attempt, run), None
-            except Exception as exc:  # Gateway failures are reconciled through durable artifacts.
+            except Exception as exc:
                 return run, None, exc
 
         with ThreadPoolExecutor(max_workers=len(attempt.agent_runs), thread_name_prefix="docguard-agent") as executor:

@@ -11,6 +11,8 @@ from fastapi.templating import Jinja2Templates
 from docguard.domain.models import (
     AgentBackend,
     CreateTaskRequest,
+    Project,
+    ProjectCreateRequest,
     TaskCreatedResponse,
     TaskStatus,
     UploadDocumentResponse,
@@ -20,6 +22,7 @@ from docguard.settings import Settings
 from docguard.services.action_chains import ActionChainUnavailableError, OpenClawActionChainExporter
 from docguard.services.approval_rules import ApprovalRuleCatalog
 from docguard.services.profiles import ReviewTypeRegistry
+from docguard.services.projects import ProjectConflictError, SQLiteProjectStore
 from docguard.services.store import SQLiteTaskStore
 from docguard.services.tasks import AuditTaskService
 from docguard.services.uploads import UploadStorage, UploadTooLargeError, UploadValidationError
@@ -31,7 +34,8 @@ logger = logging.getLogger("docguard.api")
 
 store = SQLiteTaskStore(settings.database_path)
 review_types = ReviewTypeRegistry(store.database_path)
-service = AuditTaskService(store, review_types, settings=settings)
+projects = SQLiteProjectStore(store.database_path)
+service = AuditTaskService(store, review_types, projects=projects, settings=settings)
 action_chain_exporter = OpenClawActionChainExporter(service.artifacts)
 app = FastAPI(title="DocGuard", version="0.1.0")
 app.state.upload_storage = UploadStorage(
@@ -42,7 +46,7 @@ _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
 approval_rules = ApprovalRuleCatalog(_WEB_ROOT / "approval_rules")
-_DASHBOARD_ASSET_VERSION = "approval-rules-v1"
+_DASHBOARD_ASSET_VERSION = "projects-filter-v1"
 
 
 def get_upload_storage(request: Request) -> UploadStorage:
@@ -81,6 +85,21 @@ def list_review_types():
     ]
 
 
+@app.get("/api/v1/projects", response_model=list[Project])
+def list_projects(include_archived: bool = False) -> list[Project]:
+    """List projects eligible for a new audit, with archived projects optionally included."""
+    return projects.list(include_archived=include_archived)
+
+
+@app.post("/api/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
+def create_project(request: ProjectCreateRequest) -> Project:
+    """Register a project before associating audits with it."""
+    try:
+        return projects.create(request)
+    except ProjectConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/approval-rules")
 def list_approval_rules():
     """List the Markdown-backed approval-rule documents shown in the console menu."""
@@ -100,13 +119,19 @@ def get_approval_rule(rule_id: str):
 def create_task(request: CreateTaskRequest, background_tasks: BackgroundTasks) -> TaskCreatedResponse:
     try:
         task = service.create(request)
-    except KeyError as exc:
-        logger.warning("task.create.rejected review_type_id=%s error=%s", request.review_type_id, exc)
+    except (KeyError, ValueError) as exc:
+        logger.warning(
+            "task.create.rejected project_id=%s review_type_id=%s error=%s",
+            request.project_id,
+            request.review_type_id,
+            exc,
+        )
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     background_tasks.add_task(service.run, task.task_id)
     logger.info("task.queued task_id=%s backend=%s", task.task_id, task.agent_backend.value)
     return TaskCreatedResponse(
         task_id=task.task_id,
+        project_id=task.project_id,
         status=task.status,
         status_url=f"/api/v1/tasks/{task.task_id}",
     )

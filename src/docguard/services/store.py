@@ -65,10 +65,16 @@ class SQLiteTaskStore:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO audit_tasks (task_id, created_at, updated_at, payload)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO audit_tasks (task_id, project_id, created_at, updated_at, payload)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (task.task_id, task.created_at.isoformat(), task.updated_at.isoformat(), payload),
+                (
+                    task.task_id,
+                    task.project_id,
+                    task.created_at.isoformat(),
+                    task.updated_at.isoformat(),
+                    payload,
+                ),
             )
         return task
 
@@ -97,10 +103,10 @@ class SQLiteTaskStore:
             cursor = connection.execute(
                 """
                 UPDATE audit_tasks
-                SET updated_at = ?, payload = ?
+                SET project_id = ?, updated_at = ?, payload = ?
                 WHERE task_id = ?
                 """,
-                (task.updated_at.isoformat(), task.model_dump_json(), task.task_id),
+                (task.project_id, task.updated_at.isoformat(), task.model_dump_json(), task.task_id),
             )
         if cursor.rowcount == 0:
             raise KeyError(task.task_id)

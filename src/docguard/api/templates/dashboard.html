@@ -68,6 +68,12 @@
           </div>
 
           <div class="form-row">
+            <div class="project-field">
+              <label class="field-label">所属项目
+                <span class="select-wrap"><select id="project" name="project" disabled><option>加载项目中…</option></select></span>
+              </label>
+              <button id="create-project-button" class="create-project-button" type="button">新建项目</button>
+            </div>
             <label class="field-label">报告类型
               <span class="select-wrap"><select id="review-type" name="review-type" disabled><option>加载审核类型中…</option></select></span>
             </label>
@@ -82,7 +88,7 @@
 
     <section id="tasks-page" class="page-panel tasks-page" role="tabpanel" aria-label="任务队列" hidden>
       <section id="task-monitor" class="monitor" aria-label="审核任务状态">
-        <div class="section-heading"><span class="section-index">02</span><div><p>LIVE MONITOR</p><h2>任务队列</h2></div><span class="rule"></span><label class="task-filter"><span class="sr-only">按原文件名筛选任务</span><input id="task-filename-filter" type="search" placeholder="按原文件名筛选" autocomplete="off"></label><span id="refresh-label" class="refresh-label">加载任务中</span></div>
+        <div class="section-heading"><span class="section-index">02</span><div><p>LIVE MONITOR</p><h2>任务队列</h2></div><span class="rule"></span><label class="task-project-filter"><span class="sr-only">按项目筛选任务</span><span class="select-wrap"><select id="task-project-filter" disabled><option>加载项目中…</option></select></span></label><label class="task-filter"><span class="sr-only">按原文件名筛选任务</span><input id="task-filename-filter" type="search" placeholder="按原文件名筛选" autocomplete="off"></label><span id="refresh-label" class="refresh-label">加载任务中</span></div>
         <div id="task-list" class="task-list" aria-live="polite"></div>
         <article id="task-card" class="task-card task-empty" hidden>
           <div class="task-primary"><div id="task-status" class="status-pill neutral">未开始</div><div><h3 id="task-name">尚未提交审核文件</h3><p id="task-id">提交 DOCX 后将在此跟踪审核进度</p></div></div>
@@ -128,6 +134,34 @@
     </section>
 
   </main>
+  <div id="project-dialog-backdrop" class="project-dialog-backdrop" hidden></div>
+  <section id="project-dialog" class="project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-dialog-title" hidden>
+    <form id="project-form">
+      <header class="project-dialog-head">
+        <div><p>PROJECT CATALOG</p><h2 id="project-dialog-title">新建项目</h2></div>
+        <button id="project-dialog-close" class="project-dialog-close" type="button" aria-label="关闭新建项目窗口">×</button>
+      </header>
+      <p class="project-dialog-copy">创建后会自动选中该项目，用于本次及后续审核任务。</p>
+      <label class="project-form-field">项目 ID
+        <input id="project-id" name="project_id" type="text" required maxlength="64" pattern="[a-z][a-z0-9-]{0,63}" placeholder="例如 payments-platform" autocomplete="off">
+        <small>仅小写字母、数字和连字符；创建后不可变更。</small>
+      </label>
+      <label class="project-form-field">项目名称
+        <input id="project-name" name="name" type="text" required maxlength="120" placeholder="例如 支付平台">
+      </label>
+      <label class="project-form-field">负责人（可选）
+        <input id="project-owner" name="owner" type="text" maxlength="120" placeholder="例如 架构组">
+      </label>
+      <label class="project-form-field">项目描述（可选）
+        <textarea id="project-description" name="description" maxlength="2000" rows="3" placeholder="填写项目范围或审核背景"></textarea>
+      </label>
+      <p id="project-form-message" class="project-form-message" role="status"></p>
+      <div class="project-dialog-actions">
+        <button id="project-cancel-button" class="project-cancel-button" type="button">取消</button>
+        <button id="project-submit-button" class="project-submit-button" type="submit"><span>创建项目</span><b>↗</b></button>
+      </div>
+    </form>
+  </section>
   <aside id="evidence-drawer" class="evidence-drawer" aria-label="证据复核" aria-hidden="true" hidden>
     <div class="evidence-drawer-head"><div><small>TRACEABLE EVIDENCE</small><h2 id="evidence-title">证据复核</h2></div><button id="evidence-close" class="evidence-close" type="button" aria-label="关闭证据">×</button></div>
     <div id="evidence-content" class="evidence-content"></div>

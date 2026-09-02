@@ -95,6 +95,8 @@ class OpenClawAgentGateway:
             # A task can be retried and runs one independent session per specialist.
             # Keep those trajectories isolated so an action-chain export can identify
             # exactly one session from task, attempt, and Agent identity.
+            # https://docs.openclaw.ai/gateway/openresponses-http-api
+            # openclaw will generate a stable session key with "users" value;
             "user": (
                 f"docguard:task:{task.task_id}:attempt:{attempt.attempt_id}:"
                 f"agent:{run.agent.agent_id}"

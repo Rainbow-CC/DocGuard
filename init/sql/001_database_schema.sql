@@ -33,11 +33,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_review_type_one_active
 ON review_type_definitions (review_type_id)
 WHERE enabled = 1;
 
+CREATE TABLE IF NOT EXISTS projects (
+    project_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    owner TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_tasks (
     task_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL DEFAULT 'default',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    payload TEXT NOT NULL
+    payload TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects (project_id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_tasks_created_at ON audit_tasks (created_at DESC);

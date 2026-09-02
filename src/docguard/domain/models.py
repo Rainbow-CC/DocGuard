@@ -8,6 +8,10 @@ from uuid import uuid4
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
+DEFAULT_PROJECT_ID = "default"
+PROJECT_ID_PATTERN = r"^[a-z][a-z0-9-]{0,63}$"
+
+
 def _server_now() -> datetime:
     """Return the DocGuard server's local time as an offset-aware datetime."""
     return datetime.now().astimezone()
@@ -44,6 +48,11 @@ class AgentRunStatus(StrEnum):
     COLLECTING = "collecting"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class ProjectStatus(StrEnum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
 
 
 class Severity(StrEnum):
@@ -259,14 +268,37 @@ class InputDocument(BaseModel):
     source_uri: str
 
 
+class ProjectCreateRequest(BaseModel):
+    """The mutable business information captured when a project is registered."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: str = Field(pattern=PROJECT_ID_PATTERN)
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2_000)
+    owner: str | None = Field(default=None, max_length=120)
+    status: ProjectStatus = ProjectStatus.ACTIVE
+
+
+class Project(ProjectCreateRequest):
+    """A project to which document audit tasks are permanently associated."""
+
+    created_at: datetime = Field(default_factory=_server_now)
+    updated_at: datetime = Field(default_factory=_server_now)
+
+
 class CreateTaskRequest(BaseModel):
     document: InputDocument
     review_type_id: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9-]*$")
+    # The default keeps older API clients safe while still guaranteeing that every
+    # newly created task has a project association.
+    project_id: str = Field(default=DEFAULT_PROJECT_ID, pattern=PROJECT_ID_PATTERN)
     agent_backend: AgentBackend | None = None
 
 
 class AuditTask(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid4()))
+    project_id: str = Field(default=DEFAULT_PROJECT_ID, pattern=PROJECT_ID_PATTERN)
     status: TaskStatus = TaskStatus.QUEUED
     document: InputDocument
     profile: AuditProfile
@@ -311,6 +343,7 @@ class AgentRun(BaseModel):
 
 class TaskCreatedResponse(BaseModel):
     task_id: str
+    project_id: str
     status: TaskStatus
     status_url: HttpUrl | str
 
