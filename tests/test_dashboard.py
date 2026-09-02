@@ -21,7 +21,7 @@ def test_dashboard_and_assets_are_served() -> None:
     assert 'id="project-dialog"' in page.text
     assert 'id="review-type"' in page.text
     assert 'class="brand-logo"' in page.text
-    assert 'logo.jpg?v=projects-filter-v1' in page.text
+    assert 'logo.jpg?v=pdf-report-v1' in page.text
     assert 'id="user-management-button"' in page.text
     assert 'id="approval-rules-menu"' in page.text
     assert 'id="home-page"' in page.text
@@ -30,7 +30,7 @@ def test_dashboard_and_assets_are_served() -> None:
     assert 'id="approval-rules-page"' in page.text
     assert 'id="approval-rules-outline"' in page.text
     assert 'id="page-tabs"' in page.text
-    assert 'dashboard.js?v=projects-filter-v1' in page.text
+    assert 'dashboard.js?v=pdf-report-v1' in page.text
     assert client.get("/static/dashboard.css").status_code == 200
     assert client.get("/static/dashboard.js").status_code == 200
     assert client.get("/static/logo.jpg").status_code == 200
