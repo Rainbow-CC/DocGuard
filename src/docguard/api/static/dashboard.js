@@ -405,7 +405,7 @@
     const status = task.status || 'queued'; elements.card.hidden = false; elements.card.classList.remove('task-empty'); elements.status.className = `status-pill ${status}`; elements.status.textContent = statusLabel(status);
     elements.name.textContent = task.document.filename; elements.id.textContent = `TASK / ${task.task_id}`; elements.findings.textContent = task.findings?.length ?? 0;
     elements.backend.textContent = backendLabels[task.agent_backend] || String(task.agent_backend || '—').toUpperCase(); elements.updated.textContent = formatTime(task.updated_at);
-    if (task.report_markdown) { elements.report.href = `/api/v1/tasks/${task.task_id}/report.md`; elements.report.classList.remove('disabled'); elements.report.removeAttribute('aria-disabled'); }
+    if (task.report_markdown) { elements.report.href = `/api/v1/tasks/${task.task_id}/report.pdf`; elements.report.classList.remove('disabled'); elements.report.removeAttribute('aria-disabled'); }
     else { elements.report.href = '#'; elements.report.classList.add('disabled'); elements.report.setAttribute('aria-disabled', 'true'); }
     if (elements.actionChain) {
       if (task.agent_backend === 'openclaw' && task.attempts?.length) { elements.actionChain.href = `/api/v1/tasks/${task.task_id}/action-chain.md`; elements.actionChain.classList.remove('disabled'); elements.actionChain.removeAttribute('aria-disabled'); }

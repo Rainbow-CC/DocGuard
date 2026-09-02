@@ -20,19 +20,19 @@ def _task(report_markdown: str | None, technical_review_type) -> AuditTask:
     )
 
 
-def test_report_download_returns_markdown_attachment(monkeypatch, technical_review_type) -> None:
+def test_report_download_returns_pdf_attachment(monkeypatch, technical_review_type) -> None:
     store = InMemoryTaskStore()
     monkeypatch.setattr(api, "store", store)
     task = store.create(_task("# 技术文档审核报告\n", technical_review_type))
 
-    response = TestClient(api.app).get(f"/api/v1/tasks/{task.task_id}/report.md")
+    response = TestClient(api.app).get(f"/api/v1/tasks/{task.task_id}/report.pdf")
 
     assert response.status_code == 200
-    assert response.text == "# 技术文档审核报告\n"
-    assert response.headers["content-type"].startswith("text/markdown")
+    assert response.content.startswith(b"%PDF-")
+    assert response.headers["content-type"].startswith("application/pdf")
     assert response.headers["content-disposition"] == (
-        f'attachment; filename="docguard-report-{task.task_id}.md"; '
-        f"filename*=UTF-8''docguard-report-sample-{task.task_id}.md"
+        f'attachment; filename="docguard-report-{task.task_id}.pdf"; '
+        f"filename*=UTF-8''docguard-report-sample-{task.task_id}.pdf"
     )
 
 
@@ -41,7 +41,7 @@ def test_report_download_rejects_task_without_report(monkeypatch, technical_revi
     monkeypatch.setattr(api, "store", store)
     task = store.create(_task(None, technical_review_type))
 
-    response = TestClient(api.app).get(f"/api/v1/tasks/{task.task_id}/report.md")
+    response = TestClient(api.app).get(f"/api/v1/tasks/{task.task_id}/report.pdf")
 
     assert response.status_code == 409
     assert response.json() == {"detail": "Report is not available yet"}

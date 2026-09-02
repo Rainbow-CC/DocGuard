@@ -22,6 +22,7 @@ from docguard.settings import Settings
 from docguard.services.action_chains import ActionChainUnavailableError, OpenClawActionChainExporter
 from docguard.services.approval_rules import ApprovalRuleCatalog
 from docguard.services.profiles import ReviewTypeRegistry
+from docguard.services.pdf_reporting import render_pdf
 from docguard.services.projects import ProjectConflictError, SQLiteProjectStore
 from docguard.services.store import SQLiteTaskStore
 from docguard.services.tasks import AuditTaskService
@@ -46,7 +47,7 @@ _WEB_ROOT = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
 approval_rules = ApprovalRuleCatalog(_WEB_ROOT / "approval_rules")
-_DASHBOARD_ASSET_VERSION = "projects-filter-v1"
+_DASHBOARD_ASSET_VERSION = "pdf-report-v1"
 
 
 def get_upload_storage(request: Request) -> UploadStorage:
@@ -217,9 +218,9 @@ def get_task_evidence_image(task_id: str, image_id: str) -> FileResponse:
     return FileResponse(image_path, media_type="image/png")
 
 
-@app.get("/api/v1/tasks/{task_id}/report.md")
+@app.get("/api/v1/tasks/{task_id}/report.pdf")
 def download_task_report(task_id: str) -> Response:
-    """Download the deterministic Markdown report for a completed task."""
+    """Download the fixed-layout, evidence-first PDF report for a completed task."""
     try:
         task = store.get(task_id)
     except KeyError as exc:
@@ -229,18 +230,43 @@ def download_task_report(task_id: str) -> Response:
 
     source_filename = task.document.filename.replace("\\", "/").rsplit("/", maxsplit=1)[-1]
     document_stem = Path(source_filename).stem or "document"
-    filename = f"docguard-report-{document_stem}-{task.task_id}.md"
-    fallback_filename = f"docguard-report-{task.task_id}.md"
+    filename = f"docguard-report-{document_stem}-{task.task_id}.pdf"
+    fallback_filename = f"docguard-report-{task.task_id}.pdf"
+    evidence = None
+    if task.attempts:
+        evidence = service.artifacts.read_evidence(task, task.attempts[-1])
+
+    def image_path_for(image_id: str):
+        return service.artifacts.evidence_image_path(task, image_id)
+
+    report = render_pdf(task.profile, task.findings, evidence, image_path_for)
     logger.info("task.report.downloaded task_id=%s filename=%s", task.task_id, filename)
     return Response(
-        content=task.report_markdown,
-        media_type="text/markdown",
+        content=report,
+        media_type="application/pdf",
         headers={
             "Content-Disposition": (
                 f'attachment; filename="{fallback_filename}"; '
                 f"filename*=UTF-8''{quote(filename, safe='')}"
             )
         },
+    )
+
+
+@app.get("/api/v1/tasks/{task_id}/report.md")
+def download_task_report_markdown(task_id: str) -> Response:
+    """Keep the compact Markdown export available for API clients."""
+    try:
+        task = store.get(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    if task.report_markdown is None:
+        raise HTTPException(status_code=409, detail="Report is not available yet")
+    filename = f"docguard-report-{task.task_id}.md"
+    return Response(
+        content=task.report_markdown,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

@@ -93,7 +93,7 @@
         <article id="task-card" class="task-card task-empty" hidden>
           <div class="task-primary"><div id="task-status" class="status-pill neutral">未开始</div><div><h3 id="task-name">尚未提交审核文件</h3><p id="task-id">提交 DOCX 后将在此跟踪审核进度</p></div></div>
           <div class="task-metrics"><div><span>发现项</span><strong id="findings-count">—</strong></div><div><span>执行器</span><strong id="backend-name">—</strong></div><div><span>更新时间</span><strong id="updated-at">—</strong></div></div>
-          <div class="task-actions"><button id="continue-button" class="details-button" type="button" hidden>继续任务 <span>↻</span></button><button id="details-button" class="details-button" type="button" hidden>查看详情 <span>↗</span></button><a id="report-link" class="report-link disabled" href="#" aria-disabled="true">获取报告 <span>↓</span></a>{% if action_chain_export_enabled %}<a id="action-chain-link" class="report-link disabled" href="#" aria-disabled="true">查看行动链 <span>↓</span></a>{% endif %}</div>
+          <div class="task-actions"><button id="continue-button" class="details-button" type="button" hidden>继续任务 <span>↻</span></button><button id="details-button" class="details-button" type="button" hidden>查看详情 <span>↗</span></button><a id="report-link" class="report-link disabled" href="#" aria-disabled="true">下载 PDF 报告 <span>↓</span></a>{% if action_chain_export_enabled %}<a id="action-chain-link" class="report-link disabled" href="#" aria-disabled="true">查看行动链 <span>↓</span></a>{% endif %}</div>
         </article>
         <section id="findings-summary" class="findings-summary" aria-label="风险发现概览" hidden>
           <div class="findings-header"><span>风险发现概览</span><small id="findings-summary-description"></small></div>
