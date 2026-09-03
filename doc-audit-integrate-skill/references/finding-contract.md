@@ -15,6 +15,23 @@ completion_criteria, evidence_ids, evidence_refs, root_cause_key, agent_backend
 
 - `schema_version` 固定为 `finding-v1`，`agent_backend` 固定为 `openclaw`；`confidence` 范围为 0 至 1。
 
+**⚠️ category 枚举严格受限（禁止自创值）**
+
+`category` 只能是以下 6 个值之一：
+
+| 值 | 适用场景 |
+|---|---|
+| `一致性` | 文本不一致、图文不一致、数据不一致 |
+| `可用性` | 缺少必要信息、字段缺失、内容不完整 |
+| `部署` | 部署方式、拓扑、环境相关问题 |
+| `安全` | 安全策略、密码算法、访问控制相关 |
+| `数据流` | 数据流向、接口、集成方式相关 |
+| `可读性` | 格式、表述、文档结构问题 |
+
+**禁止使用**：完整性、合规性、性能、功能、错误、警告 或任何其他未列出的值。
+
+**判断规则**：如果不确定 category，先查上表；如果仍不确定，根据问题的本质影响选择最接近的维度。
+
 ## 标准 Finding 示例
 
 以下 JSON 是所有报告类型必须遵守的完整结构；报告类型只能替换规则标识、审核维度和业务内容，不能删改字段或添加私有字段：
@@ -72,6 +89,25 @@ completion_criteria, evidence_ids, evidence_refs, root_cause_key, agent_backend
   - `columns` 是表头名称数组，数组中的每一项都会在匹配行中高亮；可为空，表示只高亮匹配行。
   - `row_match` 非空时必须且只能匹配一条数据行；列名不存在、匹配零行或多行都会导致预检失败。
   - 不需要精确行/单元格高亮时，`selector` 必须为 `null`；段落和图片证据不得使用 `selector`。
+
+**⚠️ 表格 quote 格式（必须先验证再写）**
+
+校验器内部用 `"\n".join(" | ".join(row) for row in rows)` 将表格展开为单行字符串再做 substring 匹配。因此：
+- quote 不是 markdown 格式（无 `| --- |` 分隔行）
+- quote 是连续的单元格字符串，用 ` | ` 分隔各列
+- **写 quote 前必须先用 Python 验证实际格式**：
+
+  ```python
+  import json
+  with open("$WORK/audit-evidence.json") as f:
+      evidence = json.load(f)
+  for block in evidence["blocks"]:
+      if block.get("block_id") == 52 and block.get("table"):
+          rows = block["table"]["rows"]
+          for i, row in enumerate(rows):
+              line = " | ".join(row)
+              print(f"row {i}: {line}")
+  ```
 
 - `region` 仅用于图片证据（`image:<image_id>`），用于在页面上绘制高亮框。其结构为：
 

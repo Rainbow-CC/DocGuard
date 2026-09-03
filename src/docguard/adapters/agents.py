@@ -177,7 +177,7 @@ class DshAgentGateway:
 
     def __init__(self, gateway_url: str | None = None, api_key: str | None = None) -> None:
         self.gateway_url = (gateway_url or os.getenv("DSH_GATEWAY_URL", "")).rstrip("/")
-        self.api_key = api_key or os.getenv("DSH_API_KEY", "")
+        self.api_key = api_key or os.getenv("DSH_AGW_KEY", "")
 
     def execute_attempt(self, task: AuditTask, attempt: AuditAttempt) -> str | None:
         """Create a DSH session, stream SSE, and return the session id.
@@ -207,6 +207,63 @@ class DshAgentGateway:
             previous_session_id=attempt.gateway_response_id,
         )
 
+    def _claim_key(self) -> str:
+        """Claim a new API key from the gateway."""
+        url = f"{self.gateway_url}/key"
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        response = httpx.post(url, headers=headers, timeout=30.0)
+        response.raise_for_status()
+        data = response.json()
+        logger.info("dsh.api_key.claimed")
+        return data["apiKey"]
+
+    def _create_session(self) -> str:
+        """Create a new DSH session and return its id."""
+        url = f"{self.gateway_url}/sessions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        try:
+            response = httpx.post(url, headers=headers, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+            return data["sessionId"]
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                # Key might be invalid/expired, try to claim a new one
+                logger.warning("dsh.api_key.expired, claiming new key")
+                self.api_key = self._claim_key()
+                headers["Authorization"] = f"Bearer {self.api_key}"
+                response = httpx.post(url, headers=headers, timeout=30.0)
+                response.raise_for_status()
+                data = response.json()
+                return data["sessionId"]
+            raise
+
+    def _adopt_session(self, session_id: str) -> None:
+        """Adopt an existing DSH session."""
+        url = f"{self.gateway_url}/sessions/{session_id}/adopt"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        try:
+            response = httpx.post(url, headers=headers, timeout=30.0)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                # Key might be invalid/expired, try to claim a new one
+                logger.warning("dsh.api_key.expired, claiming new key")
+                self.api_key = self._claim_key()
+                headers["Authorization"] = f"Bearer {self.api_key}"
+                response = httpx.post(url, headers=headers, timeout=30.0)
+                response.raise_for_status()
+            else:
+                raise
+
     def _stream_attempt(
         self,
         task: AuditTask,
@@ -218,42 +275,44 @@ class DshAgentGateway:
         if task.review_type is None:
             raise GatewayExecutionError("Task has no frozen review type definition")
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json; charset=utf-8",
-        }
-
         # Step 1: Create or adopt session
         if previous_session_id:
             session_id = previous_session_id
+            self._adopt_session(session_id)
         else:
-            session_id = self._create_session(headers)
-            logger.info(
-                "dsh.session.created task_id=%s attempt_id=%s session_id=%s",
-                task.task_id,
-                attempt.attempt_id,
-                session_id,
-            )
+            session_id = self._create_session()
 
-        # Step 2: Start SSE stream
+        logger.info(
+            "dsh.session.created task_id=%s attempt_id=%s session_id=%s",
+            task.task_id,
+            attempt.attempt_id,
+            session_id,
+        )
+
+        # Step 2: Attach to SSE stream BEFORE sending message (same as ask.py)
         stream_url = f"{self.gateway_url}/sessions/{session_id}/stream"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "text/event-stream",
+        }
         timeout = httpx.Timeout(connect=10.0, read=900.0, write=60.0, pool=60.0)
 
+        # Use httpx.stream() context manager for proper SSE handling
         try:
-            with httpx.Client(timeout=timeout) as client:
-                # First attach to SSE stream (must be before sending message)
-                stream_response = client.get(
-                    stream_url,
-                    headers={"Authorization": f"Bearer {self.api_key}", "Accept": "text/event-stream"},
-                )
+            with httpx.stream("GET", stream_url, headers=headers, timeout=timeout) as stream_response:
                 stream_response.raise_for_status()
 
                 # Step 3: Send message
                 message_url = f"{self.gateway_url}/sessions/{session_id}/messages"
-                message_response = client.post(
+                message_headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json; charset=utf-8",
+                }
+                message_response = httpx.post(
                     message_url,
-                    headers=headers,
+                    headers=message_headers,
                     json={"content": input_text},
+                    timeout=timeout,
                 )
                 message_response.raise_for_status()
 
@@ -287,14 +346,77 @@ class DshAgentGateway:
 
         return session_id
 
-    def _create_session(self, headers: dict[str, str]) -> str:
-        """Create a new DSH session and return its id."""
-        create_url = f"{self.gateway_url}/sessions"
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(create_url, headers=headers, json={})
+    def _upload_file(self, session_id: str, file_path: str, category: str = "evidence") -> str | None:
+        """Upload a file to the DSH session and return the file URI.
+
+        The file is sent as a content block in a message to make it available to the agent.
+        """
+        if not os.path.exists(file_path):
+            logger.warning("dsh.upload.file_not_found session_id=%s path=%s", session_id, file_path)
+            return None
+
+        file_name = os.path.basename(file_path)
+        with open(file_path, "rb") as f:
+            file_content = f.read()
+
+        # For now, send file content as base64-encoded text in a content block
+        # This makes the file content available to the agent in the session
+        import base64
+
+        content_block = {
+            "type": "file",
+            "name": file_name,
+            "category": category,
+            "content": base64.b64encode(file_content).decode("utf-8"),
+            "mime_type": self._guess_mime_type(file_path),
+        }
+
+        message_url = f"{self.gateway_url}/sessions/{session_id}/messages"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+
+        try:
+            response = httpx.post(
+                message_url,
+                headers=headers,
+                json={"content": [content_block]},
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+            )
             response.raise_for_status()
             data = response.json()
-            return data["sessionId"]
+            logger.info(
+                "dsh.upload.success session_id=%s file=%s message_id=%s",
+                session_id,
+                file_name,
+                data.get("messageId"),
+            )
+            return f"file://{file_path}"
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "dsh.upload.failed session_id=%s file=%s error=%s",
+                session_id,
+                file_name,
+                exc,
+            )
+            return None
+
+    @staticmethod
+    def _guess_mime_type(file_path: str) -> str:
+        """Guess MIME type from file extension."""
+        ext = os.path.splitext(file_path)[1].lower()
+        mime_types = {
+            ".txt": "text/plain",
+            ".json": "application/json",
+            ".md": "text/markdown",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".pdf": "application/pdf",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+        }
+        return mime_types.get(ext, "application/octet-stream")
 
     @staticmethod
     def _prompt(task: AuditTask, attempt: AuditAttempt) -> str:

@@ -17,7 +17,7 @@ logger = logging.getLogger("docguard.artifacts")
 class AgentResult(BaseModel):
     """The only durable delivery payload accepted from an agent runtime."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     schema_version: Literal["docguard-agent-result-v1"]
     task_id: str

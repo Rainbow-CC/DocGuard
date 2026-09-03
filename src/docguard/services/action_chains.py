@@ -26,7 +26,7 @@ class DshActionChainExporter:
         self.artifacts = artifacts
         self.enabled = enabled if enabled is not None else _enabled_from_environment()
         self.gateway_url = os.getenv("DSH_GATEWAY_URL", "").rstrip("/")
-        self.api_key = os.getenv("DSH_API_KEY", "")
+        self.api_key = os.getenv("DSH_AGW_KEY", "")
 
     def download_path(self, task: AuditTask) -> Path:
         """Return cached Markdown, or fetch the DSH session history and create it."""

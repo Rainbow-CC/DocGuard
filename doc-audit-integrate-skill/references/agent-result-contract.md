@@ -14,4 +14,12 @@ prompt_versions, review_type_id, review_type_version, core_contract_version, fin
 - `core_contract_version` 必须匹配 manifest 中冻结的审核类型定义。
 - `findings` 中的每一项必须遵循 `finding-contract.md`，无发现时使用空数组。
 
+**⚠️ 顶层字段严格受限（禁止添加未定义字段）**
+
+校验器只接受以下顶层字段：
+- 必填：`schema_version`, `task_id`, `attempt_id`, `input_sha256`, `profile_id`, `profile_version`, `prompt_versions`, `review_type_id`, `review_type_version`, `core_contract_version`, `findings`
+- 可选：`routing`
+
+**禁止添加**：`meta`, `warnings`, `always`, `extra` 或任何其他未列出的字段。预检时会报 `extra [...] not permitted`。
+
 结果写入临时文件后，必须运行平台提供的 `validate_findings.py`；预检成功后才能原子重命名为 `findings.json`。

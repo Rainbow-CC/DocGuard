@@ -21,6 +21,128 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告
 
 最终交付物不是 Markdown 报告。应用负责合并、证据校验、编号和 Markdown/PDF 渲染；Agent 只交付符合 [references/finding-contract.md](references/finding-contract.md) 的结构化 JSON。
 
+**⚠️ 强制约束：契约是硬准则，不是参考**
+
+1. **禁止私自添加字段**：结果 envelope 顶层只能包含契约规定的字段（`schema_version`, `task_id`, `attempt_id`, `input_sha256`, `profile_id`, `profile_version`, `prompt_versions`, `review_type_id`, `review_type_version`, `core_contract_version`, `findings`，可选 `routing`）。**不得添加 `meta`、`warnings`、`extra` 或任何契约未定义的字段**。遇到不确定的字段时，必须查 [references/agent-result-contract.md](references/agent-result-contract.md) 确认，禁止凭直觉填补。
+
+2. **category 枚举值严格受限**：`finding.contract.md` 规定 `category` 只能是以下 6 个值之一：
+   - `一致性`、`可用性`、`部署`、`安全`、`数据流`、`可读性`
+   - **禁止自创值**：不得使用 `完整性`、`合规性`、`性能`、`功能` 或任何其他值。
+   - 判断方法：缺少字段 → 根据缺少字段影响的维度选择（一致性/可用性/部署/安全/数据流/可读性）；不合规 → 根据不合规影响的维度选择。
+
+## 调试与开发最佳实践（强制）
+
+### 1. 表格证据格式验证（写 quote 前必做）
+
+在构造表格 evidence_refs 之前，**必须先用 Python 验证实际格式**：
+
+```bash
+# 验证表格实际格式：rows 如何拼接成字符串
+python3 - <<'PY'
+import json
+with open("$WORK/audit-evidence.json") as f:
+    evidence = json.load(f)
+# 假设引用 table:52 的某行
+for block in evidence["blocks"]:
+    if block.get("block_id") == 52 and block.get("table"):
+        rows = block["table"]["rows"]
+        for i, row in enumerate(rows):
+            line = " | ".join(row)
+            print(f"row {i}: {line}")
+PY
+```
+
+**禁止凭直觉写带分隔符的伪 markdown 表格**（如 `| 系统 | 名称 |`），必须用上面方法验证实际格式后，再逐字复制到 quote。
+
+### 2. 产品/版本引用必须先 grep 验证
+
+在构造涉及产品名、版本号的 finding 之前，**必须先验证存在性**：
+
+```bash
+# 验证引用版本是否在版本序列内
+grep -E "nginx|JUP3" "$WORK/audit-context.md" | head -20
+# 验证软件版本是否在准入范围内
+grep -A5 "软件目录" "$WORK/audit-context.md" | grep -E "版本|准入"
+```
+
+禁止引用未经确认的产品名或版本号。
+
+### 3. 长 quote 用 helper 函数集中定义
+
+所有需要嵌入 Python 源码的长文本 quote，**必须用 helper 函数集中定义**，禁止内联：
+
+```python
+# ✅ 正确：在文件顶部集中定义
+def q_table52_row1():
+    return "JUP3.0 | 微办公系统 | ..."
+
+def q_block15():
+    return "第3章系统指标中描述的 RPO=300 秒"
+
+# 调用处只写函数名
+quote=q_table52_row1()
+
+# ❌ 错误：内联长字符串
+quote="| JUP3.0 | 微办公系统 | ****系统 |\n| --- | --- | ..."
+```
+
+### 4. 构造前先读 validate_findings.py 常量
+
+在构造 findings 之前，**必须先读取校验器的白名单**：
+
+```bash
+head -50 "$BASE/scripts/validate_findings.py" | grep -E "TOP_LEVEL|ROUTING_FIELDS|PACK_FIELDS|FINDING_FIELDS"
+```
+
+只使用白名单内的字段，禁止添加任何未列出的字段。
+
+### 5. 文件写入防误改机制
+
+删除 build_findings.py 等辅助脚本后重新写入同一路径时，**必须先 touch 再 read**：
+
+```bash
+# ✅ 正确：先 touch 创建空文件
+touch "$WORK/reviews/build_findings.py"
+# 然后读取（即使为空）
+cat "$WORK/reviews/build_findings.py" > /dev/null
+
+# 或写入 /tmp（不会被清理）
+echo '...' > /tmp/build_findings.py
+```
+
+禁止直接写入被删除过的路径而不先重建文件句柄。
+
+### 6. 视觉阶段缺失时显式记录
+
+发现视觉阶段异常（如 EMF 图无法渲染、模型不支持）时，**必须立即记录到标记文件**：
+
+```bash
+# 发现视觉问题后立即记录
+echo "$(date -Iseconds) vision_skipped: EMF image candidate-id=xxx" >> "$WORK/reviews/vision-missing.log"
+```
+
+重启 attempt 时检查此文件，确保不遗漏已知的视觉问题。
+
+### 7. 小批量构造 + 频繁 validate（核心工作流）
+
+**禁止一次性构造大量 findings 后再验证**。正确流程：
+
+1. 构造 2-3 条 finding
+2. 运行 `validate_findings.py`
+3. 修复错误
+4. 重复步骤 1-3 直到该批次通过
+5. 才构造下一批
+
+```bash
+# 每批 2-3 条 findings 后验证一次
+python3 "$BASE/scripts/validate_findings.py" \
+  --manifest "$DOCGUARD_AUDIT_MANIFEST" \
+  --evidence "$WORK/audit-evidence.json" \
+  --input "$WORK/findings-batch1.json"
+```
+
+这样每次只影响 2-3 条 findings，不会出现"修了这条、那条又被牵连"的连锁返工。
+
 ## 固定工作流
 
 1. 以“接受修订”视图提取文档并建立审计包。
