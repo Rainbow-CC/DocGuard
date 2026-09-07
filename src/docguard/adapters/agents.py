@@ -10,6 +10,11 @@ from docguard.settings import Settings
 
 from docguard.domain.models import AgentBackend, AgentRun, AuditAttempt, AuditProfile, AuditTask, Finding
 
+try:
+    from deepseek_harness import DeepSeekHarness
+except ImportError:
+    DeepSeekHarness = None  # type: ignore
+
 
 logger = logging.getLogger("docguard.agents")
 
@@ -215,6 +220,109 @@ class LangChainAgentGateway:
         )
 
 
+class DshAgentGateway:
+    """Dispatches audit tasks through DeepSeek Harness SDK."""
+
+    backend = AgentBackend.DSH
+
+    def __init__(
+        self,
+        dsh_home: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        max_tokens: int | None = None,
+    ) -> None:
+        settings = Settings.from_environment()
+        self.dsh_home = dsh_home or settings.dsh_home
+        self.provider = provider or settings.dsh_provider
+        self.model = model or settings.dsh_model
+        self.max_tokens = max_tokens or settings.dsh_max_tokens
+
+    def audit_full_text(self, profile: AuditProfile) -> list[Finding]:
+        raise NotImplementedError("DSH audit_full_text requires audit_graph integration")
+
+    def audit_architecture(self, profile: AuditProfile) -> list[Finding]:
+        raise NotImplementedError("DSH audit_architecture requires audit_graph integration")
+
+    def execute_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None:
+        """Run a DSH agent session and return the final response text."""
+        if DeepSeekHarness is None:
+            raise GatewayExecutionError(
+                "deepseek-harness-sdk is not installed. Run: pip install deepseek-harness-sdk"
+            )
+        if not self.dsh_home:
+            raise GatewayExecutionError(
+                "DOCGUARD_DSH_HOME must be configured to use DSH backend"
+            )
+
+        session_id = f"docguard:task:{task.task_id}:attempt:{attempt.attempt_id}:agent:{run.agent.agent_id}"
+        result_path = run.result_uri.removeprefix("file://")
+        document_path = task.document.source_uri.removeprefix("file://")
+        manifest_path = attempt.input_manifest_uri.removeprefix("file://")
+
+        prompt = "\n".join(
+            [
+                f"进行文档审核,必要信息如下:",
+                f"DOCGUARD_AGENT_ID={run.agent.agent_id}",
+                f"DOCGUARD_AGENT_VERSION={run.agent.version}",
+                f"DOCGUARD_DIMENSION={run.agent.dimension}",
+                f"DOCGUARD_SCOPE={run.agent.scope or ''}",
+                f"DOCGUARD_TASK_ID={task.task_id}",
+                f"DOCGUARD_ATTEMPT_ID={attempt.attempt_id}",
+                f"DOCGUARD_RESULT_FILE={result_path}",
+                f"INPUT_DOCX={document_path}",
+                f"DOCGUARD_AUDIT_MANIFEST={manifest_path}",
+                f"DOCGUARD_EVIDENCE_DIR={result_path.rsplit('/', maxsplit=1)[0]}/evidence",
+                f"DOCGUARD_WORK_DIR={result_path.rsplit('/', maxsplit=1)[0]}/work",
+                "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
+            ]
+        )
+
+        try:
+            with DeepSeekHarness(
+                dsh_home=self.dsh_home,
+                cwd=result_path.rsplit("/", maxsplit=1)[0],
+                provider=self.provider,
+                model=self.model,
+                max_tokens=self.max_tokens,
+            ) as harness:
+                result = harness.run(prompt, session_id=session_id)
+                return result.final_response
+        except Exception as exc:
+            logger.exception("dsh.execute_failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
+            raise GatewayExecutionError(f"DSH execution failed: {exc}") from exc
+
+    def continue_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None:
+        """Continue an existing DSH session."""
+        if DeepSeekHarness is None:
+            raise GatewayExecutionError(
+                "deepseek-harness-sdk is not installed. Run: pip install deepseek-harness-sdk"
+            )
+        if not self.dsh_home:
+            raise GatewayExecutionError(
+                "DOCGUARD_DSH_HOME must be configured to use DSH backend"
+            )
+
+        session_id = f"docguard:task:{task.task_id}:attempt:{attempt.attempt_id}:agent:{run.agent.agent_id}"
+        result_path = run.result_uri.removeprefix("file://")
+
+        prompt = "当前任务若未完成审核，则继续审核，否则告诉我已完成"
+
+        try:
+            with DeepSeekHarness(
+                dsh_home=self.dsh_home,
+                cwd=result_path.rsplit("/", maxsplit=1)[0],
+                provider=self.provider,
+                model=self.model,
+                max_tokens=self.max_tokens,
+            ) as harness:
+                result = harness.run(prompt, session_id=session_id)
+                return result.final_response
+        except Exception as exc:
+            logger.exception("dsh.continue_failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
+            raise GatewayExecutionError(f"DSH continue failed: {exc}") from exc
+
+
 def graph_gateway_for(backend: AgentBackend) -> GraphAuditGateway:
     """Create a gateway that can synchronously supply findings to ``audit_graph``.
 
@@ -226,6 +334,10 @@ def graph_gateway_for(backend: AgentBackend) -> GraphAuditGateway:
             return StubAgentGateway()
         case AgentBackend.LANGCHAIN:
             return LangChainAgentGateway()
+        case AgentBackend.DSH:
+            raise ValueError(
+                "DSH is artifact-delivered; use the DSH execute_attempt path instead of audit_graph"
+            )
         case AgentBackend.OPENCLAW:
             raise ValueError(
                 "OpenClaw is artifact-delivered; use the OpenClaw attempt path instead of audit_graph"
