@@ -36,6 +36,7 @@ class AgentBackend(StrEnum):
     STUB = "stub"
     OPENCLAW = "openclaw"
     LANGCHAIN = "langchain"
+    DSH = "dsh"
 
 
 class AgentRunStatus(StrEnum):

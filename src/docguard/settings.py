@@ -8,6 +8,8 @@ from pathlib import Path, PurePosixPath
 
 from dotenv import load_dotenv
 
+from docguard.domain.models import AgentBackend
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -42,6 +44,11 @@ class Settings:
     openclaw_gateway_url: str
     openclaw_api_token: str
     action_chain_export_enabled: bool
+    default_agent_backend: AgentBackend
+    dsh_home: str | None
+    dsh_provider: str
+    dsh_model: str
+    dsh_max_tokens: int
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -70,4 +77,9 @@ class Settings:
             openclaw_gateway_url=_env("OPENCLAW_GATEWAY_URL", "").rstrip("/"),
             openclaw_api_token=_env("OPENCLAW_API_TOKEN", ""),
             action_chain_export_enabled=_enabled("DOCGUARD_ACTION_CHAIN_EXPORT_ENABLED"),
+            default_agent_backend=AgentBackend(_env("DOCGUARD_DEFAULT_AGENT_BACKEND", "dsh")),
+            dsh_home=os.getenv("DOCGUARD_DSH_HOME"),
+            dsh_provider=_env("DOCGUARD_DSH_PROVIDER", "deepseek-official"),
+            dsh_model=_env("DOCGUARD_DSH_MODEL", "deepseek-v4-flash"),
+            dsh_max_tokens=int(_env("DOCGUARD_DSH_MAX_TOKENS", "49152")),
         )
