@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from docguard.adapters.agents import (
+    DshAgentGateway,
     GatewayExecutionError,
     OpenClawAgentGateway,
     AgentGateway,
@@ -47,6 +48,7 @@ class AuditTaskService:
     ) -> None:
         settings = settings or Settings.from_environment()
         self.store = store
+        self.settings = settings
         self.review_types = review_types
         self.projects = projects or InMemoryProjectStore()
         self.artifacts = artifacts or ArtifactStore(settings.result_write_root, settings.result_agent_root)
@@ -69,7 +71,7 @@ class AuditTaskService:
         agents = review_type.resolved_agents()
         if not agents:
             raise KeyError(f"Review type {request.review_type_id} has no registered agents")
-        backend = request.agent_backend or agents[0].agent_backend
+        backend = request.agent_backend or self.settings.default_agent_backend or agents[0].agent_backend
         task = AuditTask(
             project_id=project.project_id,
             document=request.document,
@@ -96,6 +98,8 @@ class AuditTaskService:
         task.checkpoint_thread_id = task.task_id
         if task.agent_backend is AgentBackend.OPENCLAW:
             return self._run_openclaw(task)
+        if task.agent_backend is AgentBackend.DSH:
+            return self._run_dsh(task)
         try:
             graph = build_audit_graph(graph_gateway_for(task.agent_backend))
             result = graph.invoke({"task": task}, {"configurable": {"thread_id": task.task_id}})
@@ -243,6 +247,50 @@ class AuditTaskService:
                 exc,
             )
         # Persist SSE metadata before reconciliation reloads the task from a durable store.
+        self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
+        return self.collect(task.task_id, attempt.attempt_id)
+
+    def _run_dsh(self, task: AuditTask) -> AuditTask:
+        """Run a task through DeepSeek Harness SDK."""
+        logger.info("task.dsh.prepare_started task_id=%s", task.task_id)
+        dsh_gateway = DshAgentGateway()
+        attempt = self.artifacts.prepare(task)
+        task.attempts.append(attempt)
+        self._set_attempt_status(attempt, AttemptStatus.RUNNING)
+        self.store.update(task, status=TaskStatus.RUNNING)
+        try:
+            self.preprocessor.prepare(task, attempt)
+        except PreprocessingError as exc:
+            self._set_attempt_status(attempt, AttemptStatus.FAILED, str(exc))
+            logger.exception("task.dsh.preprocessing.failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
+            return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
+        try:
+            for run in attempt.agent_runs:
+                self._set_agent_run_status(run, AgentRunStatus.RUNNING)
+                try:
+                    response = dsh_gateway.execute_attempt(task, attempt, run)
+                    if response:
+                        run.gateway_response_id = response
+                        attempt.gateway_response_id = attempt.gateway_response_id or response
+                    self._set_agent_run_status(run, AgentRunStatus.COLLECTING)
+                except GatewayExecutionError as exc:
+                    self._set_agent_run_status(run, AgentRunStatus.COLLECTING, str(exc))
+                    logger.warning(
+                        "task.dsh.agent_gateway_error task_id=%s attempt_id=%s agent_id=%s error=%s",
+                        task.task_id,
+                        attempt.attempt_id,
+                        run.agent.agent_id,
+                        exc,
+                    )
+            self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
+        except GatewayExecutionError as exc:
+            self._set_attempt_status(attempt, AttemptStatus.COLLECTING, str(exc))
+            logger.exception(
+                "task.dsh.gateway_error task_id=%s attempt_id=%s error=%s",
+                task.task_id,
+                attempt.attempt_id,
+                exc,
+            )
         self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
         return self.collect(task.task_id, attempt.attempt_id)
 
