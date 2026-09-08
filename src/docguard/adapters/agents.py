@@ -279,6 +279,14 @@ class DshAgentGateway:
         )
 
         try:
+            logger.info(
+                "dsh.execute_starting task_id=%s dsh_home=%s provider=%s model=%s cwd=%s",
+                task.task_id,
+                self.dsh_home,
+                self.provider,
+                self.model,
+                result_path.rsplit("/", maxsplit=1)[0],
+            )
             with DeepSeekHarness(
                 dsh_home=self.dsh_home,
                 cwd=result_path.rsplit("/", maxsplit=1)[0],
@@ -287,6 +295,17 @@ class DshAgentGateway:
                 max_tokens=self.max_tokens,
             ) as harness:
                 result = harness.run(prompt, session_id=session_id)
+                logger.info(
+                    "dsh.execute_finished task_id=%s attempt_id=%s finish_reason=%s final_response=%r events_count=%d",
+                    task.task_id,
+                    attempt.attempt_id,
+                    result.finish_reason,
+                    result.final_response,
+                    len(result.events),
+                )
+                # 打印所有 events
+                for i, e in enumerate(result.events):
+                    logger.info(f"dsh.event[{i}]={e}")
                 return result.final_response
         except Exception as exc:
             logger.exception("dsh.execute_failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
