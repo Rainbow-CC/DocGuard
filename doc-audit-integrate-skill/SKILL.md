@@ -12,6 +12,7 @@ description: 使用 DocGuard 通用 DOCX 证据流水线审核技术架构报告
 本 skill 由 DocGuard 的长任务 worker 调用。调用提示会提供以下值；不得自行猜测、替换或创建其他任务目录：
 
 - `DOCGUARD_TASK_ID`、`DOCGUARD_ATTEMPT_ID`：本次交付身份。
+- `DOCGUARD_AGENT_BACKEND`：本 AgentRun 实际使用的执行后端；每条 Finding 的 `agent_backend` 必须与它一致。
 - `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含任务身份、文档引用、Profile 与审核类型快照。
 - `DOCGUARD_RESULT_FILE`：唯一允许交付的最终文件，固定以 `.findings.json` 结尾，例如 `findings/architecture.findings.json`。
 - `DOCGUARD_EVIDENCE_DIR`：应用已交付的只读证据包目录。
@@ -66,7 +67,7 @@ Agent 必须直接使用这些产物：禁止重新运行提取、构建提示�
 
    `$DOCGUARD_EVIDENCE_DIR/audit-evidence.json` 和 `rendered/` 已由应用写入且只读。只生成临时 findings、执行校验并原子重命名；不得覆盖证据包。
 
-   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；并根据 `DOCGUARD_DIMENSION`、`DOCGUARD_SCOPE`、`DOCGUARD_AGENT_ID`、`DOCGUARD_AGENT_VERSION` 和模型引用填写本 Agent metadata，不得伪造或猜测它们。`evidence_refs` 只能引用应用已交付证据包中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
+   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；并根据 `DOCGUARD_DIMENSION`、`DOCGUARD_SCOPE`、`DOCGUARD_AGENT_ID`、`DOCGUARD_AGENT_VERSION`、模型引用和 `DOCGUARD_AGENT_BACKEND` 填写本 Agent metadata，不得伪造或猜测它们。`evidence_refs` 只能引用应用已交付证据包中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
 
    ```bash
    BASE="{baseDir}"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import PurePosixPath
 from typing import Protocol
 
 import httpx
@@ -28,11 +29,50 @@ class GraphAuditGateway(Protocol):
 
 
 class AgentGateway(Protocol):
-    """Dispatches an artifact-delivered OpenClaw audit attempt."""
+    """Dispatches an artifact-delivered specialist audit attempt."""
 
     def execute_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None: ...
 
     def continue_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None: ...
+
+
+def artifact_session_id(task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str:
+    """Return the stable, specialist-scoped conversation key used by artifact gateways."""
+    return f"docguard:task:{task.task_id}:attempt:{attempt.attempt_id}:agent:{run.agent.agent_id}"
+
+
+def artifact_prompt(task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str:
+    """Build the backend-neutral contract prompt for one specialist run."""
+    if task.review_type is None:
+        raise GatewayExecutionError("Task has no frozen review type definition")
+    manifest_path = attempt.input_manifest_uri.removeprefix("file://")
+    result_path = run.result_uri.removeprefix("file://")
+    document_path = task.document.source_uri.removeprefix("file://")
+    attempt_root = PurePosixPath(result_path).parent.parent
+    execution_backend = run.execution_backend or task.agent_backend
+    return "\n".join(
+        [
+            "进行文档审核，必要信息如下：",
+            f"DOCGUARD_AGENT_ID={run.agent.agent_id}",
+            f"DOCGUARD_AGENT_VERSION={run.agent.version}",
+            f"DOCGUARD_AGENT_BACKEND={execution_backend.value}",
+            f"DOCGUARD_AGENT_MODEL_REF={run.agent.agent_model_ref}",
+            f"DOCGUARD_DIMENSION={run.agent.dimension}",
+            f"DOCGUARD_SCOPE={run.agent.scope or ''}",
+            f"DOCGUARD_REVIEW_TYPE={task.review_type.review_type_id}",
+            f"DOCGUARD_REVIEW_TYPE_VERSION={task.review_type.version}",
+            f"DOCGUARD_CORE_CONTRACT_VERSION={task.review_type.core_contract_version}",
+            f"DOCGUARD_VISUAL_POLICY={json.dumps(task.review_type.visual_policy, ensure_ascii=False)}",
+            f"INPUT_DOCX={document_path}",
+            f"DOCGUARD_TASK_ID={task.task_id}",
+            f"DOCGUARD_ATTEMPT_ID={attempt.attempt_id}",
+            f"DOCGUARD_AUDIT_MANIFEST={manifest_path}",
+            f"DOCGUARD_RESULT_FILE={result_path}",
+            f"DOCGUARD_EVIDENCE_DIR={attempt_root / 'evidence'}",
+            f"DOCGUARD_WORK_DIR={attempt_root / 'work'}",
+            "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
+        ]
+    )
 
 
 class StubAgentGateway:
@@ -102,10 +142,7 @@ class OpenClawAgentGateway:
             # exactly one session from task, attempt, and Agent identity.
             # https://docs.openclaw.ai/gateway/openresponses-http-api
             # openclaw will generate a stable session key with "users" value;
-            "user": (
-                f"docguard:task:{task.task_id}:attempt:{attempt.attempt_id}:"
-                f"agent:{run.agent.agent_id}"
-            ),
+            "user": run.gateway_session_id or artifact_session_id(task, attempt, run),
             "stream": True,
             "input": input_text,
         }
@@ -174,35 +211,7 @@ class OpenClawAgentGateway:
 
     @staticmethod
     def _prompt(task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str:
-        if task.review_type is None:
-            raise GatewayExecutionError("Task has no frozen review type definition")
-        manifest_path = attempt.input_manifest_uri.removeprefix("file://")
-        result_path = run.result_uri.removeprefix("file://")
-        document_path = task.document.source_uri.removeprefix("file://")
-        return "\n".join(
-            [
-                # f"执行 {run.agent.skill_ref} skill。",
-                f"进行文档审核,必要信息如下:"
-                f"DOCGUARD_AGENT_ID={run.agent.agent_id}",
-                f"DOCGUARD_AGENT_VERSION={run.agent.version}",
-                f"DOCGUARD_DIMENSION={run.agent.dimension}",
-                f"DOCGUARD_SCOPE={run.agent.scope or ''}",
-                f"DOCGUARD_REVIEW_TYPE={task.review_type.review_type_id}",
-                f"DOCGUARD_REVIEW_TYPE_VERSION={task.review_type.version}",
-                f"DOCGUARD_CORE_CONTRACT_VERSION={task.review_type.core_contract_version}",
-                # f"DOCGUARD_RULE_PACK={run.agent.rule_pack_ref}",
-                # f"DOCGUARD_RULE_PACK_VERSION={run.agent.rule_pack_version}",
-                f"DOCGUARD_VISUAL_POLICY={json.dumps(task.review_type.visual_policy, ensure_ascii=False)}",
-                f"INPUT_DOCX={document_path}",
-                f"DOCGUARD_TASK_ID={task.task_id}",
-                f"DOCGUARD_ATTEMPT_ID={attempt.attempt_id}",
-                f"DOCGUARD_AUDIT_MANIFEST={manifest_path}",
-                f"DOCGUARD_RESULT_FILE={result_path}",
-                f"DOCGUARD_EVIDENCE_DIR={result_path.rsplit('/', maxsplit=1)[0]}/evidence",
-                f"DOCGUARD_WORK_DIR={result_path.rsplit('/', maxsplit=1)[0]}/work",
-                "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
-            ]
-        )
+        return artifact_prompt(task, attempt, run)
 
 class LangChainAgentGateway:
     """Integration seam for a LangChain structured-output runnable."""
@@ -247,7 +256,7 @@ class DshAgentGateway:
         raise NotImplementedError("DSH audit_architecture requires audit_graph integration")
 
     def execute_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None:
-        """Run a DSH agent session and return the final response text."""
+        """Run a DSH specialist and let it deliver its durable findings artifact."""
         if DeepSeekHarness is None:
             raise GatewayExecutionError(
                 "deepseek-harness-sdk is not installed. Run: pip install deepseek-harness-sdk"
@@ -257,39 +266,28 @@ class DshAgentGateway:
                 "DOCGUARD_DSH_HOME must be configured to use DSH backend"
             )
 
-        session_id = f"docguard:task:{task.task_id}:attempt:{attempt.attempt_id}:agent:{run.agent.agent_id}"
-        result_path = run.result_uri.removeprefix("file://")
-        document_path = task.document.source_uri.removeprefix("file://")
-        manifest_path = attempt.input_manifest_uri.removeprefix("file://")
-
-        prompt = "\n".join(
-            [
-                f"进行文档审核,必要信息如下:",
-                f"DOCGUARD_AGENT_ID={run.agent.agent_id}",
-                f"DOCGUARD_AGENT_VERSION={run.agent.version}",
-                f"DOCGUARD_DIMENSION={run.agent.dimension}",
-                f"DOCGUARD_SCOPE={run.agent.scope or ''}",
-                f"DOCGUARD_TASK_ID={task.task_id}",
-                f"DOCGUARD_ATTEMPT_ID={attempt.attempt_id}",
-                f"DOCGUARD_RESULT_FILE={result_path}",
-                f"INPUT_DOCX={document_path}",
-                f"DOCGUARD_AUDIT_MANIFEST={manifest_path}",
-                f"DOCGUARD_EVIDENCE_DIR={result_path.rsplit('/', maxsplit=1)[0]}/evidence",
-                f"DOCGUARD_WORK_DIR={result_path.rsplit('/', maxsplit=1)[0]}/work",
-                "应用已完成 DOCX 提取、审计包构建和逐图视觉事实提取。",
-            ]
-        )
+        session_id = run.gateway_session_id or artifact_session_id(task, attempt, run)
+        prompt = artifact_prompt(task, attempt, run)
 
         try:
             with DeepSeekHarness(
                 dsh_home=self.dsh_home,
-                cwd=result_path.rsplit("/", maxsplit=1)[0],
+                cwd=run.workspace_path,
                 provider=self.provider,
                 model=self.model,
                 max_tokens=self.max_tokens,
             ) as harness:
                 result = harness.run(prompt, session_id=session_id)
-                return result.final_response
+            logger.info(
+                "dsh.execute_finished task_id=%s attempt_id=%s agent_id=%s response_chars=%s",
+                task.task_id,
+                attempt.attempt_id,
+                run.agent.agent_id,
+                len(result.final_response),
+            )
+            # ``final_response`` is completion text, not a provider response id.
+            # The durable session key lives on ``AgentRun.gateway_session_id``.
+            return None
         except Exception as exc:
             logger.exception("dsh.execute_failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
             raise GatewayExecutionError(f"DSH execution failed: {exc}") from exc
@@ -305,21 +303,27 @@ class DshAgentGateway:
                 "DOCGUARD_DSH_HOME must be configured to use DSH backend"
             )
 
-        session_id = f"docguard:task:{task.task_id}:attempt:{attempt.attempt_id}:agent:{run.agent.agent_id}"
-        result_path = run.result_uri.removeprefix("file://")
+        session_id = run.gateway_session_id or artifact_session_id(task, attempt, run)
 
         prompt = "当前任务若未完成审核，则继续审核，否则告诉我已完成"
 
         try:
             with DeepSeekHarness(
                 dsh_home=self.dsh_home,
-                cwd=result_path.rsplit("/", maxsplit=1)[0],
+                cwd=run.workspace_path,
                 provider=self.provider,
                 model=self.model,
                 max_tokens=self.max_tokens,
             ) as harness:
                 result = harness.run(prompt, session_id=session_id)
-                return result.final_response
+            logger.info(
+                "dsh.continue_finished task_id=%s attempt_id=%s agent_id=%s response_chars=%s",
+                task.task_id,
+                attempt.attempt_id,
+                run.agent.agent_id,
+                len(result.final_response),
+            )
+            return None
         except Exception as exc:
             logger.exception("dsh.continue_failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
             raise GatewayExecutionError(f"DSH continue failed: {exc}") from exc

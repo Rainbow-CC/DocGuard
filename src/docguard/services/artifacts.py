@@ -9,7 +9,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from docguard.domain.models import (
-    AgentBackend,
     AgentRun,
     AuditAttempt,
     AuditTask,
@@ -70,6 +69,27 @@ class ArtifactStore:
         local_dir = self._local_dir(task.task_id, attempt.attempt_id)
         local_dir.mkdir(parents=True, exist_ok=False)
         agent_dir = self._agent_dir(task.task_id, attempt.attempt_id)
+        findings_dir = local_dir / "findings"
+        findings_dir.mkdir()
+        attempt.result_uri = f"file://{agent_dir / 'findings'}"
+        agents = task.review_type.resolved_agents() if task.review_type else []
+        stems = [agent.artifact_stem for agent in agents]
+        if len(stems) != len(set(stems)):
+            raise ArtifactValidationError("Review type registers duplicate findings artifact names")
+        workspaces_dir = local_dir / "agent-work"
+        workspaces_dir.mkdir()
+        attempt.agent_runs = []
+        for agent in agents:
+            workspace = workspaces_dir / agent.artifact_stem
+            workspace.mkdir()
+            attempt.agent_runs.append(
+                AgentRun(
+                    agent=agent,
+                    result_uri=f"file://{agent_dir / 'findings' / f'{agent.artifact_stem}.findings.json'}",
+                    execution_backend=task.agent_backend,
+                    workspace_path=str(workspace.resolve()),
+                )
+            )
         manifest = {
             "schema_version": "docguard-audit-input-v1",
             "task_id": task.task_id,
@@ -77,23 +97,19 @@ class ArtifactStore:
             "document": task.document.model_dump(mode="json"),
             "profile": task.profile.model_dump(mode="json"),
             "review_type": task.review_type.model_dump(mode="json") if task.review_type else None,
+            "agent_runs": [
+                {
+                    "agent_id": run.agent.agent_id,
+                    "dimension": run.agent.dimension,
+                    "scope": run.agent.scope,
+                    "execution_backend": (run.execution_backend or task.agent_backend).value,
+                }
+                for run in attempt.agent_runs
+            ],
         }
         manifest_path = local_dir / "input-manifest.json"
         self._atomic_write_json(manifest_path, manifest)
         attempt.input_manifest_uri = f"file://{agent_dir / 'input-manifest.json'}"
-        findings_dir = local_dir / "findings"
-        findings_dir.mkdir()
-        attempt.result_uri = f"file://{agent_dir / 'findings'}"
-        attempt.agent_runs = [
-            AgentRun(
-                agent=agent,
-                result_uri=f"file://{agent_dir / 'findings' / f'{agent.artifact_stem}.findings.json'}",
-            )
-            for agent in task.review_type.resolved_agents()
-        ] if task.review_type else []
-        stems = [run.agent.artifact_stem for run in attempt.agent_runs]
-        if len(stems) != len(set(stems)):
-            raise ArtifactValidationError("Review type registers duplicate findings artifact names")
         logger.info(
             "artifact.manifest_written task_id=%s attempt_id=%s manifest_path=%s findings_dir=%s",
             task.task_id,
@@ -153,10 +169,11 @@ class ArtifactStore:
         self._validate_metadata(task, attempt, run, result)
         evidence = self.read_evidence(task, attempt)
         self._validate_evidence_refs(result.findings, evidence)
+        expected_backend = run.execution_backend or task.agent_backend
         for finding in result.findings:
-            if finding.agent_backend is not AgentBackend.OPENCLAW:
+            if finding.agent_backend is not expected_backend:
                 raise ArtifactValidationError(
-                    "OpenClaw artifacts must declare agent_backend=openclaw"
+                    f"Findings artifact must declare agent_backend={expected_backend.value}"
                 )
         logger.info(
             "artifact.result_validated task_id=%s attempt_id=%s agent_id=%s findings=%s",

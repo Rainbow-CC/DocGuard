@@ -9,6 +9,7 @@ from docguard.adapters.agents import (
     GatewayExecutionError,
     OpenClawAgentGateway,
     AgentGateway,
+    artifact_session_id,
     graph_gateway_for,
 )
 from docguard.domain.models import (
@@ -45,6 +46,7 @@ class AuditTaskService:
         agent_gateway: AgentGateway | None = None,
         preprocessor: AuditPreprocessor | None = None,
         settings: Settings | None = None,
+        dsh_gateway: AgentGateway | None = None,
     ) -> None:
         settings = settings or Settings.from_environment()
         self.store = store
@@ -52,9 +54,22 @@ class AuditTaskService:
         self.review_types = review_types
         self.projects = projects or InMemoryProjectStore()
         self.artifacts = artifacts or ArtifactStore(settings.result_write_root, settings.result_agent_root)
+        # ``agent_gateway`` remains the OpenClaw injection seam for compatibility.
+        # Artifact-backed dispatch selects the provider explicitly instead of
+        # constructing DSH ad hoc inside ``_run_dsh``.
         self.agent_gateway = agent_gateway or OpenClawAgentGateway(
             settings.openclaw_gateway_url, settings.openclaw_api_token
         )
+        self.dsh_gateway = dsh_gateway or DshAgentGateway(
+            dsh_home=settings.dsh_home,
+            provider=settings.dsh_provider,
+            model=settings.dsh_model,
+            max_tokens=settings.dsh_max_tokens,
+        )
+        self.artifact_gateways: dict[AgentBackend, AgentGateway] = {
+            AgentBackend.OPENCLAW: self.agent_gateway,
+            AgentBackend.DSH: self.dsh_gateway,
+        }
         self.preprocessor = preprocessor or WslDocxPreprocessor(
             settings.skill_agent_root,
             settings.result_agent_root,
@@ -71,7 +86,10 @@ class AuditTaskService:
         agents = review_type.resolved_agents()
         if not agents:
             raise KeyError(f"Review type {request.review_type_id} has no registered agents")
-        backend = request.agent_backend or self.settings.default_agent_backend or agents[0].agent_backend
+        # A task-level request explicitly overrides the registered provider.
+        # Otherwise the frozen review type decides its own default; a process-wide
+        # environment default must not silently route OpenClaw specialists to DSH.
+        backend = request.agent_backend or agents[0].agent_backend
         task = AuditTask(
             project_id=project.project_id,
             document=request.document,
@@ -182,41 +200,52 @@ class AuditTaskService:
         return reconciled
 
     def continue_collecting(self, task_id: str) -> AuditTask:
-        """Prompt a disconnected OpenClaw task to continue in its existing session."""
+        """Prompt incomplete artifact-backed specialists in their existing sessions."""
         task = self.store.get(task_id)
         if task.status is not TaskStatus.COLLECTING:
             raise ValueError(f"Task {task_id} is not collecting")
-        if task.agent_backend is not AgentBackend.OPENCLAW:
-            raise ValueError(f"Task {task_id} does not use the OpenClaw backend")
+        gateway = self._artifact_gateway(task.agent_backend)
 
         attempt = self._attempt(task, None)
         self._set_attempt_status(attempt, AttemptStatus.RUNNING, None)
         self.store.update(task, status=TaskStatus.RUNNING, error=None)
-        logger.info("task.openclaw.continue_started task_id=%s attempt_id=%s", task_id, attempt.attempt_id)
+        logger.info(
+            "task.artifact.continue_started task_id=%s attempt_id=%s backend=%s",
+            task_id,
+            attempt.attempt_id,
+            task.agent_backend.value,
+        )
         try:
-            for run in attempt.agent_runs:
-                if run.status is AgentRunStatus.COMPLETED:
-                    continue
-                response_id = self.agent_gateway.continue_attempt(task, attempt, run)
-                if response_id:
-                    run.gateway_response_id = response_id
-                    attempt.gateway_response_id = attempt.gateway_response_id or response_id
-                self._set_agent_run_status(run, AgentRunStatus.COLLECTING)
+            incomplete_runs = [
+                run for run in attempt.agent_runs if run.status is not AgentRunStatus.COMPLETED
+            ]
+            if incomplete_runs:
+                self._dispatch_agent_runs(task, attempt, gateway, continuation=True, runs=incomplete_runs)
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
         except GatewayExecutionError as exc:
             # Keep the task actionable: another continuation may still reach the agent.
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING, str(exc))
             logger.exception(
-                "task.openclaw.continue_error task_id=%s attempt_id=%s error=%s",
+                "task.artifact.continue_error task_id=%s attempt_id=%s backend=%s error=%s",
                 task_id,
                 attempt.attempt_id,
+                task.agent_backend.value,
                 exc,
             )
         self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
         return self.collect(task_id, attempt.attempt_id)
 
     def _run_openclaw(self, task: AuditTask) -> AuditTask:
-        logger.info("task.openclaw.prepare_started task_id=%s", task.task_id)
+        return self._run_artifact_attempt(task, AgentBackend.OPENCLAW)
+
+    def _run_dsh(self, task: AuditTask) -> AuditTask:
+        """Run all registered specialists through the DSH artifact gateway."""
+        return self._run_artifact_attempt(task, AgentBackend.DSH)
+
+    def _run_artifact_attempt(self, task: AuditTask, backend: AgentBackend) -> AuditTask:
+        """Run one artifact-delivered attempt with the same lifecycle for every gateway."""
+        gateway = self._artifact_gateway(backend)
+        logger.info("task.artifact.prepare_started task_id=%s backend=%s", task.task_id, backend.value)
         attempt = self.artifacts.prepare(task)
         task.attempts.append(attempt)
         self._set_attempt_status(attempt, AttemptStatus.RUNNING)
@@ -225,72 +254,35 @@ class AuditTaskService:
             self.preprocessor.prepare(task, attempt)
         except PreprocessingError as exc:
             self._set_attempt_status(attempt, AttemptStatus.FAILED, str(exc))
-            logger.exception("task.preprocessing.failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
-            return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
-        try:
-            self._dispatch_agent_runs(task, attempt)
-            self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
-            logger.info(
-                "task.openclaw.gateway_finished task_id=%s attempt_id=%s response_id=%s",
+            logger.exception(
+                "task.preprocessing.failed task_id=%s attempt_id=%s backend=%s",
                 task.task_id,
                 attempt.attempt_id,
+                backend.value,
+            )
+            return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
+        try:
+            self._dispatch_agent_runs(task, attempt, gateway)
+            self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
+            logger.info(
+                "task.artifact.gateway_finished task_id=%s attempt_id=%s backend=%s response_id=%s",
+                task.task_id,
+                attempt.attempt_id,
+                backend.value,
                 attempt.gateway_response_id,
             )
         except GatewayExecutionError as exc:
-            # A transport failure is deliberately non-terminal: the agent may have
-            # finished writing its artifact after the SSE connection disappeared.
+            # A transport failure is deliberately non-terminal: a specialist may
+            # have finished writing its artifact after the connection disappeared.
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING, str(exc))
             logger.exception(
-                "task.openclaw.gateway_error task_id=%s attempt_id=%s error=%s",
+                "task.artifact.gateway_error task_id=%s attempt_id=%s backend=%s error=%s",
                 task.task_id,
                 attempt.attempt_id,
+                backend.value,
                 exc,
             )
-        # Persist SSE metadata before reconciliation reloads the task from a durable store.
-        self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
-        return self.collect(task.task_id, attempt.attempt_id)
-
-    def _run_dsh(self, task: AuditTask) -> AuditTask:
-        """Run a task through DeepSeek Harness SDK."""
-        logger.info("task.dsh.prepare_started task_id=%s", task.task_id)
-        dsh_gateway = DshAgentGateway()
-        attempt = self.artifacts.prepare(task)
-        task.attempts.append(attempt)
-        self._set_attempt_status(attempt, AttemptStatus.RUNNING)
-        self.store.update(task, status=TaskStatus.RUNNING)
-        try:
-            self.preprocessor.prepare(task, attempt)
-        except PreprocessingError as exc:
-            self._set_attempt_status(attempt, AttemptStatus.FAILED, str(exc))
-            logger.exception("task.dsh.preprocessing.failed task_id=%s attempt_id=%s", task.task_id, attempt.attempt_id)
-            return self.store.update(task, status=TaskStatus.FAILED, error=str(exc))
-        try:
-            for run in attempt.agent_runs:
-                self._set_agent_run_status(run, AgentRunStatus.RUNNING)
-                try:
-                    response = dsh_gateway.execute_attempt(task, attempt, run)
-                    if response:
-                        run.gateway_response_id = response
-                        attempt.gateway_response_id = attempt.gateway_response_id or response
-                    self._set_agent_run_status(run, AgentRunStatus.COLLECTING)
-                except GatewayExecutionError as exc:
-                    self._set_agent_run_status(run, AgentRunStatus.COLLECTING, str(exc))
-                    logger.warning(
-                        "task.dsh.agent_gateway_error task_id=%s attempt_id=%s agent_id=%s error=%s",
-                        task.task_id,
-                        attempt.attempt_id,
-                        run.agent.agent_id,
-                        exc,
-                    )
-            self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
-        except GatewayExecutionError as exc:
-            self._set_attempt_status(attempt, AttemptStatus.COLLECTING, str(exc))
-            logger.exception(
-                "task.dsh.gateway_error task_id=%s attempt_id=%s error=%s",
-                task.task_id,
-                attempt.attempt_id,
-                exc,
-            )
+        # Persist dispatch metadata before reconciliation reloads a durable task.
         self.store.update(task, status=TaskStatus.COLLECTING, error=attempt.error)
         return self.collect(task.task_id, attempt.attempt_id)
 
@@ -311,20 +303,31 @@ class AuditTaskService:
         if error is not _UNSET:
             run.error = error
 
-    def _dispatch_agent_runs(self, task: AuditTask, attempt: AuditAttempt) -> None:
+    def _dispatch_agent_runs(
+        self,
+        task: AuditTask,
+        attempt: AuditAttempt,
+        gateway: AgentGateway,
+        *,
+        continuation: bool = False,
+        runs: list[AgentRun] | None = None,
+    ) -> None:
         """Start independent specialists concurrently; collection remains artifact-based."""
-        if not attempt.agent_runs:
+        selected_runs = runs if runs is not None else attempt.agent_runs
+        if not selected_runs:
             raise GatewayExecutionError("Review type has no registered audit agents")
 
         def dispatch(run: AgentRun) -> tuple[AgentRun, str | None, Exception | None]:
-            self._set_agent_run_status(run, AgentRunStatus.RUNNING)
+            run.gateway_session_id = run.gateway_session_id or artifact_session_id(task, attempt, run)
+            self._set_agent_run_status(run, AgentRunStatus.RUNNING, None)
             try:
-                return run, self.agent_gateway.execute_attempt(task, attempt, run), None
+                method = gateway.continue_attempt if continuation else gateway.execute_attempt
+                return run, method(task, attempt, run), None
             except Exception as exc:
                 return run, None, exc
 
-        with ThreadPoolExecutor(max_workers=len(attempt.agent_runs), thread_name_prefix="docguard-agent") as executor:
-            futures = [executor.submit(dispatch, run) for run in attempt.agent_runs]
+        with ThreadPoolExecutor(max_workers=len(selected_runs), thread_name_prefix="docguard-agent") as executor:
+            futures = [executor.submit(dispatch, run) for run in selected_runs]
             for future in as_completed(futures):
                 run, response_id, error = future.result()
                 if response_id:
@@ -333,9 +336,10 @@ class AuditTaskService:
                 if error:
                     self._set_agent_run_status(run, AgentRunStatus.COLLECTING, str(error))
                     logger.warning(
-                        "task.openclaw.agent_gateway_error task_id=%s attempt_id=%s agent_id=%s error=%s",
+                        "task.artifact.agent_gateway_error task_id=%s attempt_id=%s backend=%s agent_id=%s error=%s",
                         task.task_id,
                         attempt.attempt_id,
+                        task.agent_backend.value,
                         run.agent.agent_id,
                         error,
                     )
@@ -344,10 +348,16 @@ class AuditTaskService:
         errors = [run.error for run in attempt.agent_runs if run.error]
         attempt.error = "; ".join(errors) if errors else None
 
+    def _artifact_gateway(self, backend: AgentBackend) -> AgentGateway:
+        try:
+            return self.artifact_gateways[backend]
+        except KeyError as exc:
+            raise ValueError(f"Task backend {backend.value} is not artifact-delivered") from exc
+
     @staticmethod
     def _attempt(task: AuditTask, attempt_id: str | None) -> AuditAttempt:
         if not task.attempts:
-            raise ValueError(f"Task {task.task_id} has no OpenClaw attempt")
+            raise ValueError(f"Task {task.task_id} has no artifact attempt")
         if attempt_id is None:
             return task.attempts[-1]
         for attempt in task.attempts:

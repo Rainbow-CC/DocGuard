@@ -12,7 +12,7 @@ problem_description, impact, revision_suggestion, revision_location,
 completion_criteria, evidence_ids, evidence_refs, root_cause_key, agent_backend
 ```
 
-- `schema_version` 固定为 `finding-v1`，`agent_backend` 固定为 `openclaw`；`confidence` 范围为 0 至 1。
+- `schema_version` 固定为 `finding-v1`；`agent_backend` 必须与调用提示中的 `DOCGUARD_AGENT_BACKEND` 一致（例如 `openclaw` 或 `dsh`）；`confidence` 范围为 0 至 1。
 
 ## 标准 Finding 示例
 

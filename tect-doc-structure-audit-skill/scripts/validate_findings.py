@@ -46,10 +46,13 @@ def load_json(path: Path) -> object:
         raise ValueError(f"cannot read JSON: {exc}") from exc
 
 
-def require_fields(value: object, fields: set[str], label: str) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != fields:
+def require_fields(
+    value: object, fields: set[str], label: str, optional_fields: set[str] | None = None
+) -> dict[str, object]:
+    accepted_fields = fields | (optional_fields or set())
+    if not isinstance(value, dict) or not fields <= set(value) or set(value) - accepted_fields:
         missing = fields - set(value) if isinstance(value, dict) else fields
-        extra = set(value) - fields if isinstance(value, dict) else set()
+        extra = set(value) - accepted_fields if isinstance(value, dict) else set()
         raise ValueError(f"{label} fields mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
     return value
 
@@ -169,9 +172,12 @@ def main() -> int:
     parser.add_argument("--evidence", required=True, type=Path)
     parser.add_argument("--input", required=True, type=Path)
     args = parser.parse_args()
-    manifest = require_fields(load_json(args.manifest), {
-        "schema_version", "task_id", "attempt_id", "document", "profile", "review_type"
-    }, "manifest")
+    manifest = require_fields(
+        load_json(args.manifest),
+        {"schema_version", "task_id", "attempt_id", "document", "profile", "review_type"},
+        "manifest",
+        optional_fields={"agent_runs"},
+    )
     result = require_fields(load_json(args.input), TOP_LEVEL, "result")
     indexed_evidence = build_evidence_index(load_json(args.evidence))
     if result["schema_version"] != "docguard-agent-result-v1":
@@ -225,11 +231,29 @@ def main() -> int:
     }
     if {key: result[key] for key in expected_producer} != expected_producer:
         raise ValueError("result producer metadata does not match the registered agent")
+    execution_backend = agent.get("agent_backend", "openclaw")
+    dispatched_runs = manifest.get("agent_runs", [])
+    if isinstance(dispatched_runs, list):
+        dispatched_run = next(
+            (
+                item
+                for item in dispatched_runs
+                if isinstance(item, dict)
+                and item.get("agent_id") == agent.get("agent_id")
+                and item.get("dimension") == agent.get("dimension")
+                and item.get("scope") == agent.get("scope")
+            ),
+            None,
+        )
+        if isinstance(dispatched_run, dict):
+            execution_backend = dispatched_run.get("execution_backend", execution_backend)
+    if not isinstance(execution_backend, str):
+        raise ValueError("manifest execution_backend must be a string")
     if not isinstance(result["findings"], list):
         raise ValueError("findings must be an array")
     for index, raw in enumerate(result["findings"]):
         finding = require_fields(raw, FINDING_FIELDS, f"findings[{index}]")
-        if finding["schema_version"] != "finding-v1" or finding["agent_backend"] != "openclaw":
+        if finding["schema_version"] != "finding-v1" or finding["agent_backend"] != execution_backend:
             raise ValueError(f"findings[{index}] has an invalid fixed field")
         if finding["judgment"] not in JUDGMENTS or finding["severity"] not in SEVERITIES:
             raise ValueError(f"findings[{index}] has an invalid judgment or severity")

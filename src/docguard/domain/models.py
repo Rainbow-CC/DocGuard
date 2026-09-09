@@ -337,6 +337,16 @@ class AgentRun(BaseModel):
     agent: AuditAgentDefinition
     # ${findingsDir}/${dimension}/${scope}.findings.json
     result_uri: str
+    # Frozen at attempt preparation time.  It records the backend that actually
+    # executed this specialist even when a task-level backend override was used.
+    # ``None`` keeps persisted attempts created before this field readable.
+    execution_backend: AgentBackend | None = None
+    # A stable provider-neutral session key.  OpenClaw and DSH both use it to
+    # resume the same specialist without sharing a conversation with peers.
+    gateway_session_id: str | None = None
+    # Local worker directory used by process-backed gateways such as DSH.  This
+    # is deliberately distinct from the shared read-only attempt work bundle.
+    workspace_path: str | None = None
     status: AgentRunStatus = AgentRunStatus.PREPARED
     gateway_response_id: str | None = None
     error: str | None = None

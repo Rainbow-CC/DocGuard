@@ -12,6 +12,7 @@ description: 使用 DocGuard 证据流水线，基于 block-formatting-context.j
 本 Skill 由 DocGuard 的长任务 worker 调用。调用提示会提供以下值；不得自行猜测、替换或创建其他任务目录：
 
 - `DOCGUARD_TASK_ID`、`DOCGUARD_ATTEMPT_ID`：本次交付身份。
+- `DOCGUARD_AGENT_BACKEND`：本 AgentRun 实际使用的执行后端；每条 Finding 的 `agent_backend` 必须与它一致。
 - `DOCGUARD_AUDIT_MANIFEST`：只读输入 manifest，含任务身份、文档引用、Profile 与审核类型快照。
 - `DOCGUARD_RESULT_FILE`：唯一允许交付的最终文件，固定以 `.findings.json` 结尾，例如 `findings/format.findings.json`。
 - `DOCGUARD_EVIDENCE_DIR`：应用已交付的只读证据包目录。
@@ -52,7 +53,7 @@ Agent 不得重新运行提取、构建上下文、修改 `DOCGUARD_WORK_DIR`，
 
    `$DOCGUARD_EVIDENCE_DIR/audit-evidence.json` 仅在这一阶段用于核对 `block:<索引>` 的证据 ID 和精确原文。不得通过它新增审核范围或发现。只生成临时 findings、执行校验并原子重命名；不得覆盖证据包。
 
-   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；并根据 `DOCGUARD_DIMENSION`、`DOCGUARD_SCOPE`、`DOCGUARD_AGENT_ID`、`DOCGUARD_AGENT_VERSION` 和模型引用填写 Agent metadata，不得伪造或猜测它们。`evidence_refs` 仅可引用上下文中出现的 `block:<索引>`；不得使用表格或图片证据。先生成临时文件，校验通过后才在同一文件系统原子交付：
+   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；并根据 `DOCGUARD_DIMENSION`、`DOCGUARD_SCOPE`、`DOCGUARD_AGENT_ID`、`DOCGUARD_AGENT_VERSION`、模型引用和 `DOCGUARD_AGENT_BACKEND` 填写 Agent metadata，不得伪造或猜测它们。`evidence_refs` 仅可引用上下文中出现的 `block:<索引>`；不得使用表格或图片证据。先生成临时文件，校验通过后才在同一文件系统原子交付：
 
    ```bash
    BASE="{baseDir}"

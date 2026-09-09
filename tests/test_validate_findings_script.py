@@ -106,13 +106,19 @@ def _result(evidence_id: str = "table:35", quote: str = "数据中台 | 数管�
     }
 
 
-def _run_validator(tmp_path: Path, result: dict[str, object]) -> subprocess.CompletedProcess[str]:
+def _run_validator(
+    tmp_path: Path, result: dict[str, object], manifest: dict[str, object] | None = None
+) -> subprocess.CompletedProcess[str]:
     paths = {
         "manifest": tmp_path / "input-manifest.json",
         "evidence": tmp_path / "audit-evidence.json",
         "input": tmp_path / "findings.partial.json",
     }
-    for name, payload in (("manifest", _manifest()), ("evidence", _evidence()), ("input", result)):
+    for name, payload in (
+        ("manifest", manifest if manifest is not None else _manifest()),
+        ("evidence", _evidence()),
+        ("input", result),
+    ):
         paths[name].write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return subprocess.run(
         [
@@ -133,6 +139,27 @@ def _run_validator(tmp_path: Path, result: dict[str, object]) -> subprocess.Comp
 
 def test_preflight_accepts_exact_contiguous_table_quote(tmp_path: Path) -> None:
     completed = _run_validator(tmp_path, _result())
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_preflight_accepts_the_frozen_dsh_execution_backend(tmp_path: Path) -> None:
+    manifest = _manifest()
+    manifest["agent_runs"] = [
+        {
+            "agent_id": "content-reviewer",
+            "dimension": "content",
+            "scope": None,
+            "execution_backend": "dsh",
+        }
+    ]
+    result = _result()
+    findings = result["findings"]
+    assert isinstance(findings, list)
+    assert isinstance(findings[0], dict)
+    findings[0]["agent_backend"] = "dsh"
+
+    completed = _run_validator(tmp_path, result, manifest)
 
     assert completed.returncode == 0, completed.stderr
 
