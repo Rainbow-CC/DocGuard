@@ -13,6 +13,8 @@ services:
       # the existing persistent runtime mount.
       DOCGUARD_DSH_HOME: ${DOCGUARD_DSH_HOME:-/var/lib/docguard/dsh}
       DSH_HOME: ${DOCGUARD_DSH_HOME:-/var/lib/docguard/dsh}
+      HOME: ${DOCGUARD_DSH_HOME:-/var/lib/docguard/dsh}/home
+      XDG_CACHE_HOME: ${DOCGUARD_DSH_HOME:-/var/lib/docguard/dsh}/cache
     depends_on:
       openclaw:
         condition: service_healthy

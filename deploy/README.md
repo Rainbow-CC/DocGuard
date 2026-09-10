@@ -86,7 +86,8 @@ docker compose -f deploy/compose.yaml logs -f --tail=200 docguard
 - `docx-tech-format-audit`：结构与格式审核。
 
 Harness 的 profile 与 session 也写入该目录，并随现有
-`DOCGUARD_RUNTIME_HOST` 挂载持久化。验证安装和 Skill：
+`DOCGUARD_RUNTIME_HOST` 挂载持久化。`HOME` 和 `XDG_CACHE_HOME` 同样指向
+该目录，使 UID 10001 运行的 Harness 可以解压并复用原生组件缓存。验证安装和 Skill：
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T docguard \
