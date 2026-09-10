@@ -15,7 +15,7 @@
         scope: "session",
         workspaceAccess: "ro",
         docker: {
-          image: "openclaw-docguard-sandbox:2026.6.10",
+          image: "openclaw-docguard-sandbox:2026.9.3",
           readOnlyRoot: true,
           network: "none",
           capDrop: ["ALL"],
@@ -54,7 +54,7 @@
         scope: "session",
         workspaceAccess: "ro",
         docker: {
-          image: "openclaw-docguard-sandbox:2026.6.10",
+          image: "openclaw-docguard-sandbox:2026.9.3",
           readOnlyRoot: true,
           network: "none",
           capDrop: ["ALL"],

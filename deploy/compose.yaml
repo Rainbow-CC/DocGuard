@@ -31,7 +31,7 @@ services:
       start_period: 20s
 
   openclaw:
-    image: docguard-openclaw:2026.6.10
+    image: docguard-openclaw:2026.9.3
     restart: unless-stopped
     environment:
       HOME: /home/ubuntu
@@ -43,7 +43,7 @@ services:
       # the host Docker daemon to create the sibling audit sandbox.
       OPENCLAW_HOST_HOME: ${OPENCLAW_HOST_HOME}
       DOCGUARD_RUNTIME_HOST: ${DOCGUARD_RUNTIME_HOST}
-      OPENCLAW_GATEWAY_BIND: lan
+      OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND:-lan}
       OPENCLAW_GATEWAY_PORT: "18789"
       OPENCLAW_SANDBOX_MODE: ${OPENCLAW_SANDBOX_MODE:-all}
       OPENCLAW_EXEC_HOST: ${OPENCLAW_EXEC_HOST:-sandbox}

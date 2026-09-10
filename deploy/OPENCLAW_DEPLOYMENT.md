@@ -88,13 +88,13 @@ DOCKER_GID=<stat -c '%g' /var/run/docker.sock 的输出>
 
 ```bash
 cd /home/ubuntu/docguard-deploy-test/DocGuard/deploy
-docker build -t openclaw-docguard-sandbox:2026.6.10 -f Dockerfile.openclaw-sandbox .
+docker build -t openclaw-docguard-sandbox:2026.9.3 -f Dockerfile.openclaw-sandbox .
 ```
 
 构建 Gateway 镜像：
 
 ```bash
-docker build -t docguard-openclaw:2026.6.10 -f Dockerfile.openclaw .
+docker build -t docguard-openclaw:2026.9.3 -f Dockerfile.openclaw .
 ```
 
 `Dockerfile.openclaw` 基于官方 OpenClaw 镜像，额外安装 Docker CLI。Gateway 需要该 CLI 和 Docker socket 来创建 sibling sandbox；socket 不会挂载进 sandbox。
@@ -136,9 +136,9 @@ systemctl --user status --no-pager openclaw-gateway.service
 
 ## Gateway 与 Agent 配置
 
-`deploy/openclaw-config/docguard-openclaw.json5` 已启用 OpenResponses，并通过 `$include` 引入 `audit-runtime.agents.json5`。后者声明了 `audit-runtime`、skill 白名单和 sandbox 安全策略；复制到 `~/.openclaw-docguard/` 后即是 Docker Gateway 唯一读取的 Agent 配置。
+`deploy/openclaw-config/docguard-openclaw.json5` 已启用 OpenResponses，并通过 `$include` 引入 `audit-runtime.agents.json5`。后者以 OpenClaw 2026.9.3 的 `agents.entries` 格式声明 `audit-runtime` 和 `tech-audit-structure-reviewer`、各自 skill 白名单及 sandbox 安全策略；复制到 `~/.openclaw-docguard/` 后即是 Docker Gateway 唯一读取的 Agent 配置。
 
-因此不要再执行 `openclaw agents add audit-runtime`：模板已创建该 Agent，而本机 `~/.openclaw` 中已有的 Agent 或 skill 不会出现在这个独立实例中。
+因此不要再对这两个 Agent 执行 `openclaw agents add`：模板已创建它们，而本机 `~/.openclaw` 中已有的 Agent 或 skill 不会出现在这个独立实例中。
 
 首次部署时安装项目 skill：
 
@@ -147,6 +147,11 @@ docker compose exec -T openclaw openclaw skills install \
   /home/ubuntu/docguard-deploy-test/DocGuard/doc-audit-integrate-skill \
   --agent audit-runtime \
   --as docx-tech-architecture-audit
+
+docker compose exec -T openclaw openclaw skills install \
+  /home/ubuntu/docguard-deploy-test/DocGuard/tect-doc-structure-audit-skill \
+  --agent tech-audit-structure-reviewer \
+  --as docx-tech-format-audit
 ```
 
 重复部署前先检查；若 skill 已存在，不要重复执行安装命令或附加 `--force`：
@@ -155,7 +160,9 @@ docker compose exec -T openclaw openclaw skills install \
 docker compose exec -T openclaw openclaw config validate
 docker compose exec -T openclaw openclaw agents list
 docker compose exec -T openclaw openclaw skills check --agent audit-runtime
+docker compose exec -T openclaw openclaw skills check --agent tech-audit-structure-reviewer
 docker compose exec -T openclaw openclaw sandbox explain --agent audit-runtime
+docker compose exec -T openclaw openclaw sandbox explain --agent tech-audit-structure-reviewer
 ```
 
 若需要调整安全策略，只编辑 `~/.openclaw-docguard/audit-runtime.agents.json5`，不编辑 `~/.openclaw/openclaw.json`。该文件中的 `${OPENCLAW_HOST_HOME}` 和 `${DOCGUARD_RUNTIME_HOST}` 由 Compose 注入；改动 `.env` 的对应路径后无需再硬编码修改策略文件。改完策略后重建 sandbox：
@@ -171,7 +178,9 @@ docker compose exec -T openclaw openclaw sandbox recreate --agent audit-runtime
 ```bash
 cd /home/ubuntu/docguard-deploy-test/DocGuard/deploy
 docker compose exec -T openclaw openclaw skills check --agent audit-runtime
+docker compose exec -T openclaw openclaw skills check --agent tech-audit-structure-reviewer
 docker compose exec -T openclaw openclaw sandbox explain --agent audit-runtime
+docker compose exec -T openclaw openclaw sandbox explain --agent tech-audit-structure-reviewer
 ```
 
 从 DocGuard 容器验证 Gateway：
@@ -197,5 +206,5 @@ print(urlopen(request, timeout=10).status)
 - `Dockerfile.openclaw`：新增携带 Docker CLI 的 Gateway 镜像。
 - `Dockerfile.openclaw-sandbox`：新增受限审核 sandbox 镜像。
 - `deploy/openclaw-config/docguard-openclaw.json5`：Docker Gateway 的专用入口配置，启用 Responses 并引入 Agent 配置。
-- `deploy/openclaw-config/audit-runtime.agents.json5`：`audit-runtime` 的 skill 白名单、per-session sandbox 和工具权限策略。
+- `deploy/openclaw-config/audit-runtime.agents.json5`：两个审核 Agent 的 skill 白名单、per-session sandbox 和工具权限策略。
 - `~/.openclaw-docguard/`：运行时复制的 Docker 专用状态和配置；本机 `~/.openclaw/` 与 `openclaw-gateway.service` 保持不变。

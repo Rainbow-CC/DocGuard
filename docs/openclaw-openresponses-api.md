@@ -1,6 +1,6 @@
 # OpenClaw `POST /v1/responses` 接口契约
 
-本文汇总 DocGuard 接入 OpenClaw Gateway 的 OpenResponses 兼容接口：请求输入、普通 JSON 输出、SSE 流式事件和会话续接方式。本文面向 OpenClaw `2026.6.10`；升级 Gateway 后应以官方接口文档和实际 Gateway 响应为准。
+本文汇总 DocGuard 接入 OpenClaw Gateway 的 OpenResponses 兼容接口：请求输入、普通 JSON 输出、SSE 流式事件和会话续接方式。接口最初基于 `2026.6.10` 整理，当前部署基线已升级到 `2026.9.3`，并重新验证健康检查、模型列表和非流式 Responses 调用；升级 Gateway 后仍应以官方接口文档和实际 Gateway 响应为准。
 
 ## 1. 启用与访问
 
@@ -260,7 +260,7 @@ curl.exe -N --noproxy "*"  "http://127.0.0.1:18789/v1/responses" `
 - [OpenClaw OpenResponses API（官方）](https://docs.openclaw.ai/gateway/openresponses-http-api)：启用方式、鉴权、Agent 路由、请求字段、会话规则、文件限制、SSE 事件和错误码。
 - [OpenClaw OpenAI Chat Completions API（官方）](https://docs.openclaw.ai/gateway/openai-http-api)：Agent 目标模型命名与 Gateway Bearer Token 语义。
 - [OpenClaw Gateway Protocol（官方）](https://docs.openclaw.ai/gateway/protocol)：Dashboard 使用的 WebSocket 控制面、会话与聊天 RPC；需要完全复刻 Dashboard 的会话管理、工具生命周期或中止/插队能力时应使用此协议。
-- 本机安装的 OpenClaw `2026.6.10`：`/home/ubuntu/.npm-global/lib/node_modules/openclaw/dist/openresponses-http-*.js`，用于核对本文列出的 Response resource、output item 与 SSE JSON 字段形状。
+- OpenClaw `2026.6.10` 的本机实现曾用于核对本文列出的 Response resource、output item 与 SSE JSON 字段形状；当前 `2026.9.3` 部署已完成基本接口回归验证。
 
 PowerShell 7：
 
