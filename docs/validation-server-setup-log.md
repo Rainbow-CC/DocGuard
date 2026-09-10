@@ -313,3 +313,37 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T openclaw \
 `curl http://127.0.0.1:8000/healthz` 返回 `{"status":"ok"}`。DocGuard 容器携带
 内部 Bearer Token 访问 OpenClaw `/v1/models` 返回 HTTP 200，并通过
 `openclaw/audit-runtime` 实际请求 MiniMax，得到 `200 completed OK`。
+
+### 修复 sandbox 工件目录权限（2026-09-10）
+
+实际审核发现 OpenClaw 创建 sandbox 时将镜像的 `USER docguard` 覆盖为
+`1000:1000`，而 `deploy/runtime` 属于 `10001:10001` 且权限为 `750`，导致
+Agent 无法读取任务输入或写入 `findings`。配置已为两个 Agent 显式增加
+`docker.user: "10001:10001"`，并让只读 skill workspace 对 sandbox 可读。
+
+服务器修复与验证命令：
+
+```bash
+cd /opt/docguard
+git pull --ff-only
+
+install -m 600 -o 1000 -g 1000 \
+  deploy/openclaw-config/audit-runtime.agents.json5 \
+  /opt/openclaw-docguard-state/audit-runtime.agents.json5
+chmod 755 \
+  /opt/openclaw-docguard-state/workspace-audit-runtime \
+  /opt/openclaw-docguard-state/workspace/tech-audit-structure-reviewer
+
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T openclaw \
+  openclaw sandbox recreate --agent audit-runtime
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T openclaw \
+  openclaw sandbox recreate --agent tech-audit-structure-reviewer
+
+docker ps -aq --filter ancestor=openclaw-docguard-sandbox:2026.9.3 | \
+while read -r container_id; do
+  docker inspect "$container_id" \
+    --format 'name={{.Name}} user={{.Config.User}}'
+done
+```
+
+预期新 sandbox 显示 `user=10001:10001`。

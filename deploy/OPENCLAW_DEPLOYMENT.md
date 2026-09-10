@@ -45,7 +45,8 @@ if [ -e "$OPENCLAW_STATE_HOME/docguard-openclaw.json5" ] \
   exit 1
 fi
 sudo install -d -m 700 -o 1000 -g 1000 "$OPENCLAW_STATE_HOME"
-sudo install -d -m 700 -o 1000 -g 1000 "$OPENCLAW_STATE_HOME/workspace-audit-runtime"
+sudo install -d -m 755 -o 1000 -g 1000 "$OPENCLAW_STATE_HOME/workspace-audit-runtime"
+sudo install -d -m 755 -o 1000 -g 1000 "$OPENCLAW_STATE_HOME/workspace/tech-audit-structure-reviewer"
 install -m 600 deploy/openclaw-config/docguard-openclaw.json5 \
   "$OPENCLAW_STATE_HOME/docguard-openclaw.json5"
 install -m 600 deploy/openclaw-config/audit-runtime.agents.json5 \
@@ -100,7 +101,7 @@ docker build -t docguard-openclaw:2026.9.3 -f Dockerfile.openclaw .
 
 `Dockerfile.openclaw` 基于官方 OpenClaw 镜像，额外安装 Docker CLI。Gateway 需要该 CLI 和 Docker socket 来创建 sibling sandbox；socket 不会挂载进 sandbox。
 
-`Dockerfile.openclaw-sandbox` 使用 UID/GID `10001:10001`，并只安装审核所需的 `bash`、`python3`、`jq` 与 `ripgrep`。
+`Dockerfile.openclaw-sandbox` 使用 UID/GID `10001:10001`，并只安装审核所需的 `bash`、`python3`、`jq` 与 `ripgrep`。Agent 配置还必须显式设置 `docker.user: "10001:10001"`；OpenClaw 否则会用 Gateway 的 UID 1000 覆盖镜像中的 `USER`。两个只读 skill workspace 使用 `755`，确保 UID 10001 的 sandbox 可以读取其中内容。
 
 ## 启动服务
 

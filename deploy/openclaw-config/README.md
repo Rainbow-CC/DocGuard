@@ -8,6 +8,9 @@
 - `docguard-openclaw.json5`：Gateway、HTTP API、MiniMax 模型供应商和插件配置。
 - `audit-runtime.agents.json5`：`audit-runtime` 与
   `tech-audit-structure-reviewer` 两个 Agent，以及共用的受限 sandbox 策略。
+  Sandbox 显式以 `10001:10001` 运行，与 DocGuard runtime 的属主一致；不要
+  删除 `docker.user`，否则 OpenClaw 会以 UID 1000 创建容器并导致工件目录
+  `Permission denied`。
 
 两个 Agent 在本机的实际定义来自 `~/.openclaw/openclaw.json` 的
 `agents.entries`。以下文件属于凭据或运行状态，迁移时不要复制，也不要提交 Git：

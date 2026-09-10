@@ -16,6 +16,10 @@
         workspaceAccess: "ro",
         docker: {
           image: "openclaw-docguard-sandbox:2026.9.3",
+          // OpenClaw otherwise defaults sandbox containers to the Gateway's
+          // uid (1000), overriding the USER baked into the image. Match the
+          // DocGuard runtime owner so agents can read inputs and write results.
+          user: "10001:10001",
           readOnlyRoot: true,
           network: "none",
           capDrop: ["ALL"],
@@ -55,6 +59,7 @@
         workspaceAccess: "ro",
         docker: {
           image: "openclaw-docguard-sandbox:2026.9.3",
+          user: "10001:10001",
           readOnlyRoot: true,
           network: "none",
           capDrop: ["ALL"],
