@@ -1,13 +1,16 @@
 // Included by docguard-openclaw.json5.
+// OPENCLAW_HOST_HOME and DOCGUARD_RUNTIME_HOST are absolute Linux host paths.
 {
-  list: [
-    {
-      id: "audit-runtime",
+  entries: {
+    "audit-runtime": {
+      name: "audit-runtime",
       workspace: "${OPENCLAW_HOST_HOME}/workspace-audit-runtime",
-      model: "minimax/MiniMax-M3",
+      agentDir: "${OPENCLAW_HOST_HOME}/agents/audit-runtime/agent",
+      model: { primary: "minimax/MiniMax-M3" },
+      params: { temperature: 0.2 },
       skills: ["docx-tech-architecture-audit"],
       sandbox: {
-        mode: "all",
+        mode: "${OPENCLAW_SANDBOX_MODE}",
         backend: "docker",
         scope: "session",
         workspaceAccess: "ro",
@@ -34,9 +37,48 @@
           "gateway",
           "image",
         ],
-        exec: { host: "sandbox" },
+        exec: { host: "${OPENCLAW_EXEC_HOST}" },
         elevated: { enabled: false },
       },
     },
-  ],
+    "tech-audit-structure-reviewer": {
+      name: "tech-audit-structure-reviewer",
+      workspace: "${OPENCLAW_HOST_HOME}/workspace/tech-audit-structure-reviewer",
+      agentDir: "${OPENCLAW_HOST_HOME}/agents/tech-audit-structure-reviewer/agent",
+      model: { primary: "minimax/MiniMax-M3" },
+      params: { temperature: 0.2 },
+      skills: ["docx-tech-format-audit"],
+      sandbox: {
+        mode: "${OPENCLAW_SANDBOX_MODE}",
+        backend: "docker",
+        scope: "session",
+        workspaceAccess: "ro",
+        docker: {
+          image: "openclaw-docguard-sandbox:2026.6.10",
+          readOnlyRoot: true,
+          network: "none",
+          capDrop: ["ALL"],
+          binds: ["${DOCGUARD_RUNTIME_HOST}:/var/lib/docguard:rw"],
+          dangerouslyAllowExternalBindSources: true,
+        },
+      },
+      tools: {
+        allow: ["read", "exec"],
+        deny: [
+          "write",
+          "edit",
+          "apply_patch",
+          "process",
+          "browser",
+          "canvas",
+          "nodes",
+          "cron",
+          "gateway",
+          "image",
+        ],
+        exec: { host: "${OPENCLAW_EXEC_HOST}" },
+        elevated: { enabled: false },
+      },
+    },
+  },
 }

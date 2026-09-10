@@ -1,17 +1,68 @@
-// Dedicated configuration entrypoint for the Docker-based DocGuard Gateway.
-// It deliberately lives outside the native ~/.openclaw state directory.
+// Minimal, dedicated OpenClaw configuration for DocGuard deployments.
+// Secrets are supplied through environment variables and must not be committed.
 {
   gateway: {
-    // Compose supplies this from deploy/.env as OPENCLAW_API_TOKEN.
     mode: "local",
-    auth: { token: "${OPENCLAW_GATEWAY_TOKEN}" },
+    bind: "${OPENCLAW_GATEWAY_BIND}",
+    port: 18789,
+    auth: {
+      mode: "token",
+      token: "${OPENCLAW_GATEWAY_TOKEN}",
+    },
     http: {
       endpoints: {
+        chatCompletions: { enabled: true },
         responses: { enabled: true },
       },
     },
   },
-  // Keep the per-agent policy in its own file so it is reviewable and can be
-  // changed without mixing it into the Gateway-level configuration.
-  agents: { $include: "./audit-runtime.agents.json5" },
+
+  models: {
+    mode: "merge",
+    providers: {
+      minimax: {
+        baseUrl: "https://api.minimaxi.com/anthropic",
+        api: "anthropic-messages",
+        authHeader: true,
+        timeoutSeconds: 300,
+        models: [
+          {
+            id: "MiniMax-M3",
+            name: "MiniMax M3",
+            reasoning: true,
+            input: ["text", "image"],
+            contextWindow: 1000000,
+            maxTokens: 49152,
+          },
+        ],
+      },
+    },
+  },
+
+  auth: {
+    profiles: {
+      "minimax:cn": {
+        provider: "minimax",
+        mode: "api_key",
+      },
+    },
+  },
+
+  plugins: {
+    entries: {
+      minimax: { enabled: true },
+    },
+  },
+
+  tools: {
+    profile: "coding",
+    sessions: { visibility: "all" },
+  },
+
+  // Agent declarations and their sandbox policy are kept independently so
+  // they can be reviewed without exposing gateway or provider configuration.
+  agents: {
+    ownership: "explicit",
+    $include: "./audit-runtime.agents.json5",
+  },
 }
