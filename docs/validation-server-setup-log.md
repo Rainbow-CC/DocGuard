@@ -347,3 +347,30 @@ done
 ```
 
 预期新 sandbox 显示 `user=10001:10001`。
+
+曾尝试以下配置校验命令，但 OpenClaw 2026.9.3 不提供 `config check`，返回
+`OpenClaw config has no command "check"`，因此改用 `sandbox explain` 和实际
+Agent 工具调用验证：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T openclaw \
+  openclaw config check
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T openclaw \
+  openclaw sandbox explain --agent audit-runtime
+```
+
+通过两个 `/v1/responses` 最小请求，分别让 `audit-runtime` 和
+`tech-audit-structure-reviewer` 在 sandbox 中运行 `id`、读取已有任务的
+`input-manifest.json`，并在 `findings` 中创建后删除权限测试文件。两个请求均
+返回 `completed` 和 `PERMISSION_OK`。随后检查实际容器：
+
+```bash
+for container_id in $(docker ps -q \
+  --filter ancestor=openclaw-docguard-sandbox:2026.9.3); do
+  docker inspect "$container_id" \
+    --format 'name={{.Name}} user={{.Config.User}} groups={{json .HostConfig.GroupAdd}} status={{.State.Status}}'
+done
+```
+
+两个运行中的 sandbox 均显示 `user=10001:10001`；测试文件确认已删除，
+`docguard` 与 `openclaw` 服务仍为 `healthy`。
