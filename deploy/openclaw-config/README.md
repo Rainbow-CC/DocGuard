@@ -73,7 +73,16 @@ docker compose -f deploy/compose.yaml exec -T openclaw openclaw skills install \
   /path/to/DocGuard/tect-doc-structure-audit-skill \
   --agent tech-audit-structure-reviewer \
   --as docx-tech-format-audit
+
+sudo bash deploy/fix-openclaw-skill-permissions.sh \
+  /home/<user>/.openclaw-docguard
 ```
+
+必须在每次安装或更新 Skill 后运行权限脚本。OpenClaw 可能以 Gateway UID 将
+Skill 根目录创建为 `0700`；本项目的 sandbox 显式使用 `10001:10001`，若不处理，
+Agent 能读写 DocGuard 工件但无法读取 `SKILL.md`、结果契约和校验器。权限脚本只
+开放读取/目录遍历，不开放写入。已有 session sandbox 还需用 `openclaw sandbox
+recreate --agent <agent-id>` 重建。
 
 最后验证配置和 Agent：
 

@@ -154,6 +154,19 @@ docker compose exec -T openclaw openclaw skills install \
   /home/ubuntu/docguard-deploy-test/DocGuard/tect-doc-structure-audit-skill \
   --agent tech-audit-structure-reviewer \
   --as docx-tech-format-audit
+
+# OpenClaw 以 Gateway UID 安装 Skill，根目录可能是 0700；sandbox 使用
+# 10001:10001，安装或更新 Skill 后必须规范化只读权限。
+sudo bash deploy/fix-openclaw-skill-permissions.sh "$OPENCLAW_STATE_HOME"
+```
+
+该脚本只增加目录的读取/遍历权限和文件的读取权限，不向 sandbox 授予 Skill
+写权限。每次重新安装或更新 Skill 后都要运行。若已有 session sandbox，则随后执行
+下面两条命令，使其重新复制权限正确的 Skill：
+
+```bash
+docker compose exec -T openclaw openclaw sandbox recreate --agent audit-runtime
+docker compose exec -T openclaw openclaw sandbox recreate --agent tech-audit-structure-reviewer
 ```
 
 重复部署前先检查；若 skill 已存在，不要重复执行安装命令或附加 `--force`：
@@ -166,6 +179,9 @@ docker compose exec -T openclaw openclaw skills check --agent tech-audit-structu
 docker compose exec -T openclaw openclaw sandbox explain --agent audit-runtime
 docker compose exec -T openclaw openclaw sandbox explain --agent tech-audit-structure-reviewer
 ```
+
+`skills check` 只确认 Gateway 能读取 Skill，不能证明不同 UID 的 sandbox 能读取。
+审核前还应在新建的 sandbox 中确认 `/workspace/skills/<skill>/SKILL.md` 可读。
 
 若需要调整安全策略，只编辑 `~/.openclaw-docguard/audit-runtime.agents.json5`，不编辑 `~/.openclaw/openclaw.json`。该文件中的 `${OPENCLAW_HOST_HOME}` 和 `${DOCGUARD_RUNTIME_HOST}` 由 Compose 注入；改动 `.env` 的对应路径后无需再硬编码修改策略文件。改完策略后重建 sandbox：
 
