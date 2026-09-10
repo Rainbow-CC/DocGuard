@@ -90,7 +90,7 @@ Harness 的 profile 与 session 也写入该目录，并随现有
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T docguard \
-  /bin/sh -lc 'dsh --version && find -L "$DOCGUARD_DSH_HOME/skills" -name SKILL.md -print'
+  /bin/sh -lc '/app/.venv/bin/dsh --version && find -L "$DOCGUARD_DSH_HOME/skills" -name SKILL.md -print'
 
 docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T docguard \
   /app/.venv/bin/python - <<'PY'
