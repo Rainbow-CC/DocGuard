@@ -34,7 +34,7 @@ services:
     image: docguard-openclaw:2026.9.3
     restart: unless-stopped
     environment:
-      HOME: /home/ubuntu
+      HOME: /home/node
       OPENCLAW_STATE_DIR: ${OPENCLAW_HOST_HOME}
       OPENCLAW_CONFIG_PATH: ${OPENCLAW_HOST_HOME}/docguard-openclaw.json5
       OPENCLAW_WORKSPACE_DIR: ${OPENCLAW_HOST_HOME}/workspace

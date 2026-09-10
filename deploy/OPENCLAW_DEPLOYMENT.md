@@ -14,7 +14,7 @@ OpenClaw Gateway 不发布宿主机端口，仅通过 Compose 内部 DNS 名称 
 
 ## 前置条件
 
-以下命令对应项目 `deploy/README.md` 的单机 Linux 部署准备过程。Docker Gateway 使用独立状态目录 `~/.openclaw-docguard`，不会读取或修改本机原生 OpenClaw 的 `~/.openclaw`。
+以下命令对应项目 `deploy/README.md` 的单机 Linux 部署准备过程。Docker Gateway 使用独立状态目录 `/opt/openclaw-docguard-state`，不会读取或修改本机原生 OpenClaw 的 `~/.openclaw`。官方镜像以 UID/GID `1000:1000` 的 `node` 用户运行，因此状态目录不能放在只有 root 可穿越的 `/root` 下。
 
 ```bash
 # 1. 确认 Docker Engine 与 Docker Compose v2 已可用。
@@ -38,18 +38,19 @@ stat -c '%u:%g %a %n' deploy/runtime
 
 # 5. 初始化 Docker 专用的 OpenClaw 状态目录和配置文件。
 # 若这两个文件已存在，停止而非覆盖，避免误改已部署的 Docker Gateway。
-OPENCLAW_STATE_HOME="$HOME/.openclaw-docguard"
+OPENCLAW_STATE_HOME="/opt/openclaw-docguard-state"
 if [ -e "$OPENCLAW_STATE_HOME/docguard-openclaw.json5" ] \
   || [ -e "$OPENCLAW_STATE_HOME/audit-runtime.agents.json5" ]; then
   echo "专用 OpenClaw 配置已存在：$OPENCLAW_STATE_HOME" >&2
   exit 1
 fi
-install -d -m 700 "$OPENCLAW_STATE_HOME"
-install -d -m 700 "$OPENCLAW_STATE_HOME/workspace-audit-runtime"
+sudo install -d -m 700 -o 1000 -g 1000 "$OPENCLAW_STATE_HOME"
+sudo install -d -m 700 -o 1000 -g 1000 "$OPENCLAW_STATE_HOME/workspace-audit-runtime"
 install -m 600 deploy/openclaw-config/docguard-openclaw.json5 \
   "$OPENCLAW_STATE_HOME/docguard-openclaw.json5"
 install -m 600 deploy/openclaw-config/audit-runtime.agents.json5 \
   "$OPENCLAW_STATE_HOME/audit-runtime.agents.json5"
+sudo chown -R 1000:1000 "$OPENCLAW_STATE_HOME"
 ```
 
 预期 `stat` 输出以 `10001:10001 750` 开头。`openclaw` 服务会加入补充组 `10001`，以便校验和创建指向 `runtime` 的 sandbox bind mount；目录仍不对 Gateway 开放写权限，因此不要把它放宽为 `755`。若将 `.env` 中的 `OPENCLAW_HOST_HOME` 改为其他目录，必须将上面 `OPENCLAW_STATE_HOME` 改为完全相同的宿主机路径。专用目录由 Compose 挂载给 Docker Gateway；本机的 `~/.openclaw/openclaw.json`、Agent、skill、认证和 session 都不会被复用。
@@ -61,7 +62,7 @@ install -m 600 deploy/openclaw-config/audit-runtime.agents.json5 \
 ```dotenv
 OPENCLAW_GATEWAY_URL=http://openclaw:18789/v1
 OPENCLAW_API_TOKEN=<为 Docker Gateway 单独生成的 Token>
-OPENCLAW_HOST_HOME=/home/ubuntu/.openclaw-docguard
+OPENCLAW_HOST_HOME=/opt/openclaw-docguard-state
 MINIMAX_API_KEY=<MiniMax API Key>
 DOCGUARD_REPO_HOST=/home/ubuntu/docguard-deploy-test/DocGuard
 DOCGUARD_RUNTIME_HOST=/home/ubuntu/docguard-deploy-test/DocGuard/deploy/runtime
@@ -70,7 +71,7 @@ DOCKER_GID=<stat -c '%g' /var/run/docker.sock 的输出>
 
 `compose.yaml` 将 `OPENCLAW_API_TOKEN` 映射为 Gateway 端的 `OPENCLAW_GATEWAY_TOKEN`，并在专用配置文件中引用它；因此 DocGuard 发出的 Bearer Token 与 Docker Gateway 完全一致。`MINIMAX_API_KEY` 传给 `openclaw` 服务以供审核 Agent 调用模型。当前 `docguard` 服务也通过 `env_file: .env` 读取该变量；不要将 Token、模型 API Key 或视觉模型 API Key 提交到 Git。
 
-若已有旧版 `deploy/.env`，不要重新复制或覆盖它；至少手动补入 `OPENCLAW_HOST_HOME`、`MINIMAX_API_KEY`、`DOCGUARD_REPO_HOST`、`DOCGUARD_RUNTIME_HOST` 和 `DOCKER_GID`。其中 `OPENCLAW_HOST_HOME` 必须是 `~/.openclaw-docguard`（或你选择的另一个新目录），不能是本机的 `~/.openclaw`。
+若已有旧版 `deploy/.env`，不要重新复制或覆盖它；至少手动补入 `OPENCLAW_HOST_HOME`、`MINIMAX_API_KEY`、`DOCGUARD_REPO_HOST`、`DOCGUARD_RUNTIME_HOST` 和 `DOCKER_GID`。其中 `OPENCLAW_HOST_HOME` 应使用 `/opt/openclaw-docguard-state`（或另一个 UID 1000 可读写、父目录可穿越的新目录），不能是本机的 `~/.openclaw`，也不能放在 `/root` 下。
 
 ### 改动位置
 

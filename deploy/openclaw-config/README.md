@@ -27,7 +27,7 @@ Compose 从 `deploy/.env` 向 OpenClaw 注入以下变量。路径必须按服�
 ```dotenv
 OPENCLAW_GATEWAY_TOKEN=<生成一个新的 Gateway Token>
 MINIMAX_API_KEY=<MiniMax API Key>
-OPENCLAW_HOST_HOME=/home/<user>/.openclaw-docguard
+OPENCLAW_HOST_HOME=/opt/openclaw-docguard-state
 DOCGUARD_RUNTIME_HOST=/absolute/path/to/DocGuard/deploy/runtime
 OPENCLAW_SANDBOX_MODE=all
 OPENCLAW_EXEC_HOST=sandbox

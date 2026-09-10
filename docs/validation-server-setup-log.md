@@ -219,3 +219,97 @@ curl --noproxy '*' http://127.0.0.1:18789/v1/models \
 
 本次验证中，三个接口均返回 HTTP 200；随后通过 `POST /v1/responses` 调用
 `openclaw/audit-runtime`，MiniMax M3 成功返回 `OK`。
+
+## 2026-09-10：从 Git 克隆并执行 Docker 验证部署
+
+服务器从 GitHub 的 `ui-optimization` 分支克隆到 `/opt/docguard`，检出的版本为
+`836ae4910d9cd8fd4b311f5bba21e65ac3530417`：
+
+```bash
+git clone --branch ui-optimization --single-branch \
+  https://github.com/Rainbow-CC/DocGuard.git /opt/docguard
+cd /opt/docguard
+git rev-parse HEAD
+```
+
+按 Docker 官方 Ubuntu APT 仓库安装 Engine 与 Compose plugin，安装后验证并启用服务：
+
+```bash
+apt-get update
+apt-get install -y ca-certificates curl
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"${UBUNTU_CODENAME:-$VERSION_CODENAME}\") stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+docker --version
+docker compose version
+```
+
+创建仅保存在服务器上的环境文件。真实 Token 和 Key 不记录在本文：
+
+```bash
+cd /opt/docguard
+cp deploy/.env.example deploy/.env
+chmod 600 deploy/.env
+sed -i 's#^OPENCLAW_HOST_HOME=.*#OPENCLAW_HOST_HOME=/opt/openclaw-docguard-state#' deploy/.env
+sed -i 's#^DOCGUARD_REPO_HOST=.*#DOCGUARD_REPO_HOST=/opt/docguard#' deploy/.env
+sed -i 's#^DOCGUARD_RUNTIME_HOST=.*#DOCGUARD_RUNTIME_HOST=/opt/docguard/deploy/runtime#' deploy/.env
+sed -i "s#^DOCKER_GID=.*#DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)#" deploy/.env
+
+install -d -m 750 -o 10001 -g 10001 /opt/docguard/deploy/runtime
+install -d -m 700 -o 1000 -g 1000 /opt/openclaw-docguard-state
+install -m 600 -o 1000 -g 1000 \
+  deploy/openclaw-config/docguard-openclaw.json5 \
+  /opt/openclaw-docguard-state/docguard-openclaw.json5
+install -m 600 -o 1000 -g 1000 \
+  deploy/openclaw-config/audit-runtime.agents.json5 \
+  /opt/openclaw-docguard-state/audit-runtime.agents.json5
+```
+
+`deploy/.env` 还需人工填写：
+
+```dotenv
+OPENCLAW_API_TOKEN=<随机生成的独立 Gateway Token>
+MINIMAX_API_KEY=<MiniMax API Key>
+DASHSCOPE_API_KEY=<启用视觉预处理/完整 DOCX 审核时必填>
+DOCGUARD_DEFAULT_AGENT_BACKEND=openclaw
+```
+
+构建、初始化和启动命令：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker build -t openclaw-docguard-sandbox:2026.9.3 \
+  -f deploy/Dockerfile.openclaw-sandbox deploy
+docker build -t docguard-openclaw:2026.9.3 \
+  -f deploy/Dockerfile.openclaw deploy
+docker compose --env-file deploy/.env -f deploy/compose.yaml build docguard
+docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm --no-deps \
+  docguard /app/.venv/bin/python /app/init/apply_sql.py \
+  --database-path /var/lib/docguard/docguard.sqlite3
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
+```
+
+首次启动发现镜像用户是 `node`（UID 1000）。因此 Compose 的 `HOME` 修正为
+`/home/node`，持久化状态目录使用 `/opt/openclaw-docguard-state` 并归属
+`1000:1000`。修正后安装两个 Skill：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T openclaw \
+  node openclaw.mjs skills install /opt/docguard/doc-audit-integrate-skill \
+  --agent audit-runtime --as docx-tech-architecture-audit
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T openclaw \
+  node openclaw.mjs skills install /opt/docguard/tect-doc-structure-audit-skill \
+  --agent tech-audit-structure-reviewer --as docx-tech-format-audit
+```
+
+最终 `docker compose ps` 显示 `docguard` 与 `openclaw` 均为 `healthy`；
+`curl http://127.0.0.1:8000/healthz` 返回 `{"status":"ok"}`。DocGuard 容器携带
+内部 Bearer Token 访问 OpenClaw `/v1/models` 返回 HTTP 200，并通过
+`openclaw/audit-runtime` 实际请求 MiniMax，得到 `200 completed OK`。
