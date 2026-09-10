@@ -27,7 +27,7 @@ from docguard.graph.audit_graph import build_audit_graph
 from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
 from docguard.services.projects import InMemoryProjectStore, ProjectStore
 from docguard.services.profiles import ReviewTypeRegistry
-from docguard.services.preprocessing import AuditPreprocessor, PreprocessingError, WslDocxPreprocessor
+from docguard.services.preprocessing import AuditPreprocessor, PreprocessingError, DocxPreprocessor
 from docguard.services.reporting import render_markdown
 from docguard.services.store import TaskStore
 from docguard.settings import Settings
@@ -70,7 +70,7 @@ class AuditTaskService:
             AgentBackend.OPENCLAW: self.agent_gateway,
             AgentBackend.DSH: self.dsh_gateway,
         }
-        self.preprocessor = preprocessor or WslDocxPreprocessor(
+        self.preprocessor = preprocessor or DocxPreprocessor(
             settings.skill_agent_root,
             settings.result_agent_root,
             command=settings.preprocess_command,

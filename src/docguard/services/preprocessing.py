@@ -32,7 +32,7 @@ class NoopPreprocessor:
         return None
 
 
-class WslDocxPreprocessor:
+class DocxPreprocessor:
     """Runs the versioned skill scripts and vision CLI from the application.
 
     The web process can run on Windows while the tools and their intermediate
@@ -60,7 +60,7 @@ class WslDocxPreprocessor:
         self.vision_cache = vision_cache or VisionResponseCache.from_environment()
 
     @classmethod
-    def from_environment(cls) -> "WslDocxPreprocessor":
+    def from_environment(cls) -> "DocxPreprocessor":
         settings = Settings.from_environment()
         return cls(
             skill_root=settings.skill_agent_root,

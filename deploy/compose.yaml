@@ -45,6 +45,8 @@ services:
       DOCGUARD_RUNTIME_HOST: ${DOCGUARD_RUNTIME_HOST}
       OPENCLAW_GATEWAY_BIND: lan
       OPENCLAW_GATEWAY_PORT: "18789"
+      OPENCLAW_SANDBOX_MODE: ${OPENCLAW_SANDBOX_MODE:-all}
+      OPENCLAW_EXEC_HOST: ${OPENCLAW_EXEC_HOST:-sandbox}
       # DocGuard authenticates with OPENCLAW_API_TOKEN; the Gateway receives the
       # same value under OpenClaw's server-side token variable.
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_API_TOKEN:-}

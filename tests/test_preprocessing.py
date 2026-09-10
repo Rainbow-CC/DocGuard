@@ -9,7 +9,7 @@ from time import sleep
 import pytest
 
 from docguard.domain.models import AuditAttempt, CreateTaskRequest, InputDocument
-from docguard.services.preprocessing import PreprocessingError, WslDocxPreprocessor
+from docguard.services.preprocessing import PreprocessingError, DocxPreprocessor
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
 from docguard.services.vision import VisionResponse, VisionResponseCache
@@ -40,7 +40,7 @@ def test_wsl_preprocessor_uses_linux_paths_and_runs_vision(monkeypatch, review_t
     task = _task(review_type_registry)
     task.review_type.visual_policy = {"enabled": False}
     attempt = AuditAttempt(input_manifest_uri="pending", result_uri="pending", input_sha256=task.document.content_sha256)
-    preprocessor = WslDocxPreprocessor(
+    preprocessor = DocxPreprocessor(
         "/mnt/c/repo/doc-audit-integrate-skill",
         PurePosixPath("/home/ubuntu/docguard-results"),
     )
@@ -61,7 +61,7 @@ def test_wsl_preprocessor_surfaces_linux_failure(monkeypatch, review_type_regist
     task = _task(review_type_registry)
     task.review_type.visual_policy = {"enabled": False}
     attempt = AuditAttempt(input_manifest_uri="pending", result_uri="pending", input_sha256=task.document.content_sha256)
-    preprocessor = WslDocxPreprocessor("/skill", "/results")
+    preprocessor = DocxPreprocessor("/skill", "/results")
 
     with pytest.raises(PreprocessingError, match="missing soffice"):
         preprocessor.prepare(task, attempt)
@@ -107,7 +107,7 @@ def test_vision_batch_limits_concurrency_to_ten(
     _vision_work(tmp_path, task, attempt, 11)
     cache_database_path = tmp_path / "cache.sqlite3"
     provision_database(cache_database_path)
-    preprocessor = WslDocxPreprocessor(
+    preprocessor = DocxPreprocessor(
         "/skill",
         "/results",
         write_root=tmp_path,
@@ -131,7 +131,7 @@ def test_vision_batch_rejects_more_than_fifty_images_without_calls(
     _vision_work(tmp_path, task, attempt, 51)
     cache_database_path = tmp_path / "cache.sqlite3"
     provision_database(cache_database_path)
-    preprocessor = WslDocxPreprocessor(
+    preprocessor = DocxPreprocessor(
         "/skill",
         "/results",
         write_root=tmp_path,

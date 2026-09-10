@@ -31,6 +31,7 @@ class GraphAuditGateway(Protocol):
 class AgentGateway(Protocol):
     """Dispatches an artifact-delivered specialist audit attempt."""
 
+    """Execute specific agent run (1 task, 1 attempt, 1 agent run)"""
     def execute_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None: ...
 
     def continue_attempt(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> str | None: ...
