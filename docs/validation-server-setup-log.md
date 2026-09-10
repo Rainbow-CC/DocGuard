@@ -374,3 +374,54 @@ done
 
 两个运行中的 sandbox 均显示 `user=10001:10001`；测试文件确认已删除，
 `docguard` 与 `openclaw` 服务仍为 `healthy`。
+
+### 修复 sandbox 无法读取已安装 Skill（2026-09-10）
+
+再次执行真实审核时，MiniMax 请求均返回 HTTP 200，Agent 也成功写出 Findings，
+但 DocGuard 报告 `418 validation errors for AgentResult`。OpenClaw 日志显示：
+
+```text
+read failed: stat failed for /workspace/skills/docx-tech-architecture-audit/SKILL.md
+cd: can't cd to /workspace/skills/docx-tech-architecture-audit
+```
+
+原因是 `openclaw skills install` 创建的 Skill 根目录为 `0700`、属于 Gateway
+UID 1000；sandbox 已按上一次修复改为 UID/GID `10001:10001`，因此能读写
+DocGuard runtime，却不能进入 Skill 根目录读取结果契约和校验器。Agent 在缺少
+Skill 约束时生成了旧式 JSON，最终被应用拒绝。这不是 MiniMax API 故障。
+
+项目新增 `deploy/fix-openclaw-skill-permissions.sh`。服务器同步并修复：
+
+```bash
+cd /opt/docguard
+git pull --ff-only
+bash deploy/fix-openclaw-skill-permissions.sh /opt/openclaw-docguard-state
+
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec openclaw \
+  openclaw sandbox recreate --agent audit-runtime
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec openclaw \
+  openclaw sandbox recreate --agent tech-audit-structure-reviewer
+```
+
+脚本把两个已安装 Skill 树的目录设为 `0755`，并为文件增加读取权限；没有给
+sandbox 增加 Skill 写权限。旧 session sandbox 必须重建，因为其中的
+`/workspace` 是此前权限错误的快照。
+
+随后通过两个全新的 `/v1/responses` 请求，分别要求两个 Agent 在 sandbox 中
+读取下列文件：
+
+```text
+/workspace/skills/<skill>/SKILL.md
+/workspace/skills/<skill>/references/finding-contract.md
+/workspace/skills/<skill>/scripts/validate_findings.py
+```
+
+两个请求均返回 `HTTP 200 completed SKILL_READ_OK`。容器内再次直接检查得到：
+
+```text
+user=10001:10001 /workspace/skills/docx-tech-format-audit READ_OK
+user=10001:10001 /workspace/skills/docx-tech-architecture-audit READ_OK
+```
+
+`docguard` 与 `openclaw` 最终仍为 `healthy`。以后每次安装或更新 Skill 后都要
+重新运行权限脚本；如果对应 session sandbox 已存在，还要重建 sandbox。
