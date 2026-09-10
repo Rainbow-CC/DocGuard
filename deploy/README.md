@@ -31,7 +31,7 @@
    - 仅演示页面/API：创建任务时在请求中指定 `agent_backend: "stub"`。
    - 调用视觉审核：填写 `DASHSCOPE_API_KEY`。
    - 调用 OpenClaw：填写 `OPENCLAW_GATEWAY_URL` 与 `OPENCLAW_API_TOKEN`。
-   - 调用 DeepSeek Harness：填写 `DEEPSEEK_API_KEY`，创建任务时使用
+   - 调用 DeepSeek Harness：填写 `MINIMAX_CN_API_KEY`，创建任务时使用
      `agent_backend: "dsh"`。不要把真实 Key 提交到 Git。
 
 4. 构建镜像并执行一次数据库初始化：
@@ -78,6 +78,8 @@ docker compose -f deploy/compose.yaml logs -f --tail=200 docguard
 
 `docguard` 镜像根据 `uv.lock` 安装 `deepseek-harness-sdk` 及匹配的原生
 `dsh` runtime。SDK 通过 stdio 启动同一容器内的 `dsh`，不依赖宿主机安装。
+`deploy/dsh-settings.yaml` 注册 `minimax-cn` provider，并将默认模型设置为
+`MiniMax-M3`；API Key 只从容器环境变量 `MINIMAX_CN_API_KEY` 读取。
 
 容器入口会把两个项目 Skill 注册到持久化的
 `/var/lib/docguard/dsh/skills/`：
@@ -106,7 +108,7 @@ with DeepSeekHarness(
 PY
 ```
 
-真实模型调用还要求容器环境中存在 `DEEPSEEK_API_KEY`。修改
+真实模型调用还要求容器环境中存在 `MINIMAX_CN_API_KEY`。修改
 `deploy/.env` 后，需要用 `docker compose up -d --force-recreate docguard`
 重建容器，已有进程才会取得新环境变量。
 

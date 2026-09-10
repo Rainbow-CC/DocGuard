@@ -28,6 +28,7 @@ COPY init ./init
 COPY doc-audit-integrate-skill ./doc-audit-integrate-skill
 COPY tect-doc-structure-audit-skill ./tect-doc-structure-audit-skill
 COPY deploy/docker-entrypoint.sh /usr/local/bin/docguard-entrypoint
+COPY deploy/dsh-settings.yaml /opt/docguard-dsh-config/settings.yaml
 COPY README.md ./
 RUN uv sync --frozen --no-dev
 
