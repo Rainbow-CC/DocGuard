@@ -31,6 +31,8 @@
    - 仅演示页面/API：创建任务时在请求中指定 `agent_backend: "stub"`。
    - 调用视觉审核：填写 `DASHSCOPE_API_KEY`。
    - 调用 OpenClaw：填写 `OPENCLAW_GATEWAY_URL` 与 `OPENCLAW_API_TOKEN`。
+   - 调用 DeepSeek Harness：填写 `DEEPSEEK_API_KEY`，创建任务时使用
+     `agent_backend: "dsh"`。不要把真实 Key 提交到 Git。
 
 4. 构建镜像并执行一次数据库初始化：
 
@@ -71,6 +73,41 @@ docker compose -f deploy/compose.yaml up -d --build
 # 查看日志
 docker compose -f deploy/compose.yaml logs -f --tail=200 docguard
 ```
+
+## DeepSeek Harness
+
+`docguard` 镜像根据 `uv.lock` 安装 `deepseek-harness-sdk` 及匹配的原生
+`dsh` runtime。SDK 通过 stdio 启动同一容器内的 `dsh`，不依赖宿主机安装。
+
+容器入口会把两个项目 Skill 注册到持久化的
+`/var/lib/docguard/dsh/skills/`：
+
+- `docx-tech-architecture-audit`：内容/架构审核；
+- `docx-tech-format-audit`：结构与格式审核。
+
+Harness 的 profile 与 session 也写入该目录，并随现有
+`DOCGUARD_RUNTIME_HOST` 挂载持久化。验证安装和 Skill：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T docguard \
+  /bin/sh -lc 'dsh --version && find -L "$DOCGUARD_DSH_HOME/skills" -name SKILL.md -print'
+
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T docguard \
+  /app/.venv/bin/python - <<'PY'
+from deepseek_harness import DeepSeekHarness
+
+with DeepSeekHarness(
+    cwd="/var/lib/docguard",
+    dsh_home="/var/lib/docguard/dsh",
+    profile="sdk",
+):
+    print("DSH SDK stdio handshake: OK")
+PY
+```
+
+真实模型调用还要求容器环境中存在 `DEEPSEEK_API_KEY`。修改
+`deploy/.env` 后，需要用 `docker compose up -d --force-recreate docguard`
+重建容器，已有进程才会取得新环境变量。
 
 如果本次发布变更了 `init/sql/`，应在启动新版本前按“部署步骤”第 4 步重新执行初始化脚本；应用本身不会执行这些 SQL。
 

@@ -7,6 +7,11 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # The Python SDK starts this container's bundled dsh process through
+      # stdio. Profiles, sessions, and globally installed audit skills live in
+      # the existing persistent runtime mount.
+      DOCGUARD_DSH_HOME: ${DOCGUARD_DSH_HOME:-/var/lib/docguard/dsh}
     depends_on:
       openclaw:
         condition: service_healthy

@@ -26,16 +26,20 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 COPY init ./init
 COPY doc-audit-integrate-skill ./doc-audit-integrate-skill
+COPY tect-doc-structure-audit-skill ./tect-doc-structure-audit-skill
+COPY deploy/docker-entrypoint.sh /usr/local/bin/docguard-entrypoint
 COPY README.md ./
 RUN uv sync --frozen --no-dev
 
 # The bind-mounted runtime directory must be writable by this UID (see deploy/README.md).
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin docguard \
     && mkdir -p /var/lib/docguard \
+    && chmod 0755 /usr/local/bin/docguard-entrypoint \
     && chown -R docguard:docguard /app /var/lib/docguard
 
 USER docguard
 
 EXPOSE 8000
 
+ENTRYPOINT ["/usr/local/bin/docguard-entrypoint"]
 CMD ["/app/.venv/bin/uvicorn", "docguard.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
