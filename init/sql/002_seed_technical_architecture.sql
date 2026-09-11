@@ -13,7 +13,7 @@ VALUES (
     'content-reviewer',
     '1.0.0',
     1,
-    '{"agent_id":"content-reviewer","version":"1.0.0","dimension":"content","scope":null,"agent_backend":"openclaw","agent_model_ref":"openclaw/audit-runtime","skill_ref":"docx-tech-architecture-audit","rule_pack_ref":"technical-architecture/review-rules.md","rule_pack_version":"1.0.0"}'
+    '{"agent_id":"content-reviewer","version":"1.0.0","dimension":"content","scope":null,"skill_set_ref":"docx-tech-architecture-audit","skill_set_version":"1.0.0","rule_pack_ref":"technical-architecture/review-rules.md","rule_pack_version":"1.0.0"}'
 );
 
 INSERT OR IGNORE INTO review_type_agent_definitions

@@ -1,7 +1,12 @@
 from hashlib import sha256
 import sqlite3
 
-from docguard.domain.models import AgentBackend, CreateTaskRequest, InputDocument
+from docguard.domain.models import (
+    AgentBackend,
+    AgentRouteDefinition,
+    CreateTaskRequest,
+    InputDocument,
+)
 from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
@@ -17,13 +22,22 @@ def test_review_type_registry_versions_definitions_and_task_freezes_snapshot(rev
     definition.rule_pack_ref = "overview-design/review-rules.md"
     definition.visual_policy = {"enabled": False}
     definition.agents[0].version = "1.0.1"
-    definition.agents[0].agent_backend = AgentBackend.STUB
+    definition.agent_routes = [
+        AgentRouteDefinition(
+            route_id="technical-audit/content-reviewer",
+            version="2.0.0",
+            agent_id=definition.agents[0].agent_id,
+            agent_version=definition.agents[0].version,
+            is_default=True,
+        )
+    ]
     registry.register(definition)
 
     service = AuditTaskService(InMemoryTaskStore(), registry)
     task = service.create(
         CreateTaskRequest(
             review_type_id="overview-design",
+            agent_backend=AgentBackend.STUB,
             document=InputDocument(
                 filename="overview.docx",
                 content_sha256=sha256(b"overview").hexdigest(),

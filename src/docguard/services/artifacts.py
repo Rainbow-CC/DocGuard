@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from docguard.domain.models import (
+    AgentBackend,
     AgentRun,
     AuditAttempt,
     AuditTask,
@@ -16,6 +17,8 @@ from docguard.domain.models import (
     Finding,
 )
 from docguard.settings import Settings
+from docguard.services.skill_sets import DshSkillSetResolver
+from docguard.services.runtime_routes import RuntimeRouteResolver
 
 
 logger = logging.getLogger("docguard.artifacts")
@@ -51,14 +54,29 @@ class ArtifactValidationError(ValueError):
 class ArtifactStore:
     """Maps a task attempt to a shared WSL directory with atomic result delivery."""
 
-    def __init__(self, write_root: Path | str, agent_root: PurePosixPath | str) -> None:
+    def __init__(
+        self,
+        write_root: Path | str,
+        agent_root: PurePosixPath | str,
+        skill_set_root: Path | str | None = None,
+        runtime_routes: RuntimeRouteResolver | None = None,
+    ) -> None:
         self.write_root = Path(write_root)
         self.agent_root = PurePosixPath(agent_root)
+        self.skill_set_resolver = (
+            DshSkillSetResolver(skill_set_root) if skill_set_root is not None else None
+        )
+        self.runtime_routes = runtime_routes
 
     @classmethod
     def from_environment(cls) -> ArtifactStore:
         settings = Settings.from_environment()
-        return cls(settings.result_write_root, settings.result_agent_root)
+        return cls(
+            settings.result_write_root,
+            settings.result_agent_root,
+            settings.dsh_skill_set_root,
+            RuntimeRouteResolver.from_file(settings.runtime_routes_path),
+        )
 
     def prepare(self, task: AuditTask) -> AuditAttempt:
         attempt = AuditAttempt(
@@ -82,12 +100,28 @@ class ArtifactStore:
         for agent in agents:
             workspace = workspaces_dir / agent.artifact_stem
             workspace.mkdir()
+            route = task.review_type.route_for(agent)
+            if self.runtime_routes is None:
+                binding = AgentRun(
+                    agent=agent,
+                    result_uri="pending",
+                    execution_backend=task.agent_backend,
+                ).resolved_runtime_binding
+            else:
+                binding = self.runtime_routes.resolve(route, task.agent_backend)
+            runtime_patch_path = None
+            if binding.backend is AgentBackend.DSH and self.skill_set_resolver is not None:
+                runtime_patch_path = str(
+                    self.skill_set_resolver.write_isolation_patch(agent, workspace).resolve()
+                )
             attempt.agent_runs.append(
                 AgentRun(
                     agent=agent,
+                    runtime_binding=binding,
                     result_uri=f"file://{agent_dir / 'findings' / f'{agent.artifact_stem}.findings.json'}",
                     execution_backend=task.agent_backend,
                     workspace_path=str(workspace.resolve()),
+                    runtime_patch_path=runtime_patch_path,
                 )
             )
         manifest = {
@@ -103,6 +137,9 @@ class ArtifactStore:
                     "dimension": run.agent.dimension,
                     "scope": run.agent.scope,
                     "execution_backend": (run.execution_backend or task.agent_backend).value,
+                    "runtime_binding": run.resolved_runtime_binding.model_dump(mode="json"),
+                    "skill_set_ref": run.agent.skill_set_ref,
+                    "skill_set_version": run.agent.skill_set_version,
                 }
                 for run in attempt.agent_runs
             ],
@@ -278,7 +315,7 @@ class ArtifactStore:
             "scope": run.agent.scope,
             "producer_agent_id": run.agent.agent_id,
             "producer_agent_version": run.agent.version,
-            "producer_model_ref": run.agent.agent_model_ref,
+            "producer_model_ref": run.resolved_runtime_binding.model_ref,
         }
         actual = result.model_dump(include=set(expected))
         if actual != expected:

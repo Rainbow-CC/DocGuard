@@ -14,6 +14,7 @@ from docguard.api import app as api
 from docguard.domain.models import (
     AgentBackend,
     AgentRun,
+    AgentRouteDefinition,
     AuditAgentDefinition,
     AuditAttempt,
     AuditProfile,
@@ -56,6 +57,16 @@ def _register_dsh_review_type(review_type_registry) -> str:
             rule_pack_version="1.0.0",
         ),
     ]
+    definition.agent_routes = [
+        AgentRouteDefinition(
+            route_id=f"technical-audit/{agent.agent_id}",
+            version="1.0.0",
+            agent_id=agent.agent_id,
+            agent_version=agent.version,
+            is_default=True,
+        )
+        for agent in definition.agents
+    ]
     review_type_registry.register(definition)
     return definition.review_type_id
 
@@ -76,7 +87,7 @@ def _result(task, attempt, run) -> dict[str, object]:
         "scope": run.agent.scope,
         "producer_agent_id": run.agent.agent_id,
         "producer_agent_version": run.agent.version,
-        "producer_model_ref": run.agent.agent_model_ref,
+        "producer_model_ref": run.resolved_runtime_binding.model_ref,
         "findings": [
             {
                 "finding_id": f"fd-{run.agent.artifact_stem}",
@@ -269,7 +280,7 @@ def test_dsh_gateway_uses_the_run_workspace_and_does_not_return_completion_text(
         version="1.0.0",
         display_name="DSH audit",
         description="Audit",
-        skill_ref=agent.skill_ref,
+        skill_ref=agent.skill_set_ref,
         core_contract_version=1,
         rule_pack_ref=agent.rule_pack_ref,
         rule_pack_version=agent.rule_pack_version,
@@ -299,6 +310,7 @@ def test_dsh_gateway_uses_the_run_workspace_and_does_not_return_completion_text(
         execution_backend=AgentBackend.DSH,
         gateway_session_id="session-example",
         workspace_path=str(tmp_path),
+        runtime_patch_path=str(tmp_path / "skill-isolation.patch.yml"),
     )
     captured: dict[str, object] = {}
 
@@ -323,6 +335,7 @@ def test_dsh_gateway_uses_the_run_workspace_and_does_not_return_completion_text(
 
     assert result is None
     assert captured["kwargs"]["cwd"] == str(tmp_path)
+    assert captured["kwargs"]["patches"] == (str(tmp_path / "skill-isolation.patch.yml"),)
     assert captured["session_id"] == "session-example"
     assert "DOCGUARD_AGENT_BACKEND=dsh" in captured["prompt"]
     assert "DOCGUARD_EVIDENCE_DIR=/docguard-results/task-example/attempt-example/evidence" in captured["prompt"]

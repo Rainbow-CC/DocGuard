@@ -67,7 +67,11 @@ def _result(task: AuditTask, attempt_id: str, quote: str = "故障恢复<=24小�
         "scope": agent.scope,
         "producer_agent_id": agent.agent_id,
         "producer_agent_version": agent.version,
-        "producer_model_ref": agent.agent_model_ref,
+        "producer_model_ref": (
+            run.resolved_runtime_binding.model_ref
+            if run is not None
+            else f"{task.agent_backend.value}/audit-runtime"
+        ),
         "findings": [
             {
                 "finding_id": "fd_example",

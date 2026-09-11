@@ -196,7 +196,7 @@ class OpenClawActionChainExporter:
                     "",
                     f"- 审核维度：`{run.agent.dimension}`",
                     f"- Scope：`{run.agent.scope or '—'}`",
-                    f"- 模型：`{run.agent.agent_model_ref}`",
+                    f"- 模型：`{run.resolved_runtime_binding.model_ref}`",
                     f"- Gateway Response ID：`{run.gateway_response_id or 'unknown'}`",
                     "",
                     self._nest_markdown(path.read_text(encoding="utf-8")),

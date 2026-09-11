@@ -7,6 +7,7 @@ import pytest
 from docguard.domain.models import (
     AgentBackend,
     AgentRun,
+    AgentRuntimeBinding,
     AuditAgentDefinition,
     AuditAttempt,
     AuditTask,
@@ -101,8 +102,28 @@ def test_action_chain_exports_each_agent_and_combines_their_markdown(
     )
     attempt = task.attempts[0]
     attempt.agent_runs = [
-        AgentRun(agent=content, result_uri="file:///docguard-results/content.findings.json"),
-        AgentRun(agent=structure, result_uri="file:///docguard-results/structure.findings.json"),
+        AgentRun(
+            agent=content,
+            runtime_binding=AgentRuntimeBinding(
+                route_id="technical-audit/content-reviewer",
+                route_version="1.0.0",
+                route_config_version="test",
+                backend=AgentBackend.OPENCLAW,
+                target_ref="openclaw/audit-runtime",
+            ),
+            result_uri="file:///docguard-results/content.findings.json",
+        ),
+        AgentRun(
+            agent=structure,
+            runtime_binding=AgentRuntimeBinding(
+                route_id="technical-audit/structure-reviewer",
+                route_version="1.0.0",
+                route_config_version="test",
+                backend=AgentBackend.OPENCLAW,
+                target_ref="openclaw/structure-reviewer",
+            ),
+            result_uri="file:///docguard-results/structure.findings.json",
+        ),
     ]
     exporter = RecordingActionChainExporter(artifacts)
 

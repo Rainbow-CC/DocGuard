@@ -18,10 +18,10 @@ Agent 必须向 `DOCGUARD_RESULT_FILE` 原子交付一个 UTF-8 编码的 JSON �
 | `scope` | string 或 `null` | 使用当前已注册交付 Agent 的 `scope`。没有细分范围时必须为 JSON `null`，不得使用空字符串、`"null"` 或自行推断的值；必须与 `DOCGUARD_SCOPE` 一致。 |
 | `producer_agent_id` | string | 当前交付 Agent 的注册 `agent_id`；必须与 `DOCGUARD_AGENT_ID` 一致，并能在 manifest 的 `review_type.agents` 中找到。 |
 | `producer_agent_version` | string | 当前交付 Agent 的注册 `version`；必须与 `DOCGUARD_AGENT_VERSION` 一致。 |
-| `producer_model_ref` | string 或 `null` | 当前交付 Agent 的注册 `agent_model_ref`。当注册值为空时必须为 JSON `null`；不得自行填充模型名称。 |
+| `producer_model_ref` | string | 从 manifest 的 `agent_runs` 中找到当前交付 Agent 的冻结运行快照：优先使用 `runtime_binding.model`；该值为空时使用 `runtime_binding.target_ref`。不得从 `review_type.agents` 推断，也不得自行填充模型名称。 |
 | `findings` | array | 本次审核的 Finding 数组。无发现时必须为 `[]`；有发现时每一项必须严格遵循 [finding-contract.md](finding-contract.md)。 |
 
-`task_id` 至 `core_contract_version` 必须与 manifest 逐值相等。`dimension` 至 `producer_model_ref` 必须与 manifest 中该注册 Agent 的配置逐值相等；不得猜测、替换或伪造 metadata。
+`task_id` 至 `core_contract_version` 必须与 manifest 逐值相等。`dimension`、`scope`、`producer_agent_id` 和 `producer_agent_version` 必须与 manifest 中的逻辑 Agent 定义一致；`producer_model_ref` 必须来自同一 Agent 对应的 `agent_runs[].runtime_binding` 冻结快照。逻辑 Agent 定义不携带 backend 或模型信息。
 
 ## `findings` 与证据引用
 

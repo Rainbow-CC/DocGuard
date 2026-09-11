@@ -5,6 +5,7 @@ from docguard.adapters import agents
 from docguard.domain.models import (
     AgentBackend,
     AgentRun,
+    AgentRuntimeBinding,
     AuditAgentDefinition,
     AuditAttempt,
     AuditProfile,
@@ -80,7 +81,7 @@ def _audit_run() -> tuple[AuditTask, AuditAttempt, AgentRun]:
         version="1.0.0",
         display_name="Technical architecture",
         description="Audit",
-        skill_ref=agent.skill_ref,
+        skill_ref=agent.skill_set_ref,
         core_contract_version=1,
         rule_pack_ref=agent.rule_pack_ref,
         rule_pack_version=agent.rule_pack_version,
@@ -106,6 +107,13 @@ def _audit_run() -> tuple[AuditTask, AuditAttempt, AgentRun]:
     )
     run = AgentRun(
         agent=agent,
+        runtime_binding=AgentRuntimeBinding(
+            route_id="technical-audit/content-reviewer",
+            route_version="1.0.0",
+            route_config_version="test",
+            backend=AgentBackend.OPENCLAW,
+            target_ref="openclaw/audit-runtime",
+        ),
         result_uri="file:///docguard-results/findings/content.findings.json",
     )
     return task, attempt, run

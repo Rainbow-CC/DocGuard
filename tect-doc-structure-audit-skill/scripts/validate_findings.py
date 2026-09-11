@@ -61,6 +61,19 @@ def normalize(value: str) -> str:
     return " ".join(value.split())
 
 
+def producer_model_ref(dispatched_run: dict[str, object]) -> str:
+    """Project the runtime-specific model identity from a frozen AgentRun."""
+    binding = dispatched_run.get("runtime_binding")
+    if not isinstance(binding, dict):
+        raise ValueError("manifest AgentRun has no runtime_binding")
+    model = binding.get("model")
+    target_ref = binding.get("target_ref")
+    value = model or target_ref
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("manifest AgentRun runtime_binding has no model identity")
+    return value
+
+
 def block_content(block: dict[str, object]) -> str:
     if block.get("type") == "table":
         rows = block.get("rows", [])
@@ -222,31 +235,31 @@ def main() -> int:
     )
     if agent is None:
         raise ValueError("result producer_agent_id is not registered for this review type")
+    dispatched_runs = manifest.get("agent_runs", [])
+    dispatched_run = next(
+        (
+            item
+            for item in dispatched_runs
+            if isinstance(item, dict)
+            and item.get("agent_id") == agent.get("agent_id")
+            and item.get("dimension") == agent.get("dimension")
+            and item.get("scope") == agent.get("scope")
+        ),
+        None,
+    ) if isinstance(dispatched_runs, list) else None
+    if not isinstance(dispatched_run, dict):
+        raise ValueError("result producer has no frozen AgentRun in manifest")
     expected_producer = {
         "dimension": agent.get("dimension"),
         "scope": agent.get("scope"),
         "producer_agent_id": agent.get("agent_id"),
         "producer_agent_version": agent.get("version"),
-        "producer_model_ref": agent.get("agent_model_ref"),
+        "producer_model_ref": producer_model_ref(dispatched_run),
     }
     if {key: result[key] for key in expected_producer} != expected_producer:
         raise ValueError("result producer metadata does not match the registered agent")
     execution_backend = agent.get("agent_backend", "openclaw")
-    dispatched_runs = manifest.get("agent_runs", [])
-    if isinstance(dispatched_runs, list):
-        dispatched_run = next(
-            (
-                item
-                for item in dispatched_runs
-                if isinstance(item, dict)
-                and item.get("agent_id") == agent.get("agent_id")
-                and item.get("dimension") == agent.get("dimension")
-                and item.get("scope") == agent.get("scope")
-            ),
-            None,
-        )
-        if isinstance(dispatched_run, dict):
-            execution_backend = dispatched_run.get("execution_backend", execution_backend)
+    execution_backend = dispatched_run.get("execution_backend", execution_backend)
     if not isinstance(execution_backend, str):
         raise ValueError("manifest execution_backend must be a string")
     if not isinstance(result["findings"], list):

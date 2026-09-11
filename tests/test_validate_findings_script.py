@@ -32,10 +32,22 @@ def _manifest() -> dict[str, object]:
                     "version": "1.0.0",
                     "dimension": "content",
                     "scope": None,
-                    "agent_model_ref": "openclaw/audit-runtime",
                 }
             ],
         },
+        "agent_runs": [
+            {
+                "agent_id": "content-reviewer",
+                "dimension": "content",
+                "scope": None,
+                "execution_backend": "openclaw",
+                "runtime_binding": {
+                    "backend": "openclaw",
+                    "target_ref": "openclaw/audit-runtime",
+                    "model": None,
+                },
+            }
+        ],
     }
 
 
@@ -151,6 +163,11 @@ def test_preflight_accepts_the_frozen_dsh_execution_backend(tmp_path: Path) -> N
             "dimension": "content",
             "scope": None,
             "execution_backend": "dsh",
+            "runtime_binding": {
+                "backend": "dsh",
+                "target_ref": "dsh/sdk",
+                "model": "MiniMax-M3",
+            },
         }
     ]
     result = _result()
@@ -158,10 +175,21 @@ def test_preflight_accepts_the_frozen_dsh_execution_backend(tmp_path: Path) -> N
     assert isinstance(findings, list)
     assert isinstance(findings[0], dict)
     findings[0]["agent_backend"] = "dsh"
+    result["producer_model_ref"] = "MiniMax-M3"
 
     completed = _run_validator(tmp_path, result, manifest)
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_preflight_rejects_model_ref_from_logical_agent_instead_of_runtime(tmp_path: Path) -> None:
+    result = _result()
+    result["producer_model_ref"] = "MiniMax-M3"
+
+    completed = _run_validator(tmp_path, result)
+
+    assert completed.returncode == 2
+    assert "producer metadata does not match" in completed.stderr
 
 
 @pytest.mark.parametrize(

@@ -207,7 +207,7 @@ class AuditProfile(BaseModel):
 
 
 class AuditAgentDefinition(BaseModel):
-    """A versioned specialist that can be registered by one or more review types.
+    """Backend-neutral audit responsibilities and capability requirements.
     !!![IMPORTANT] The manifest will be added to the prompt !!!
 
     Example::
@@ -217,8 +217,8 @@ class AuditAgentDefinition(BaseModel):
             version="1.0.0",
             dimension="architecture",       # Stable report category.
             scope="deployment",              # Optional category subdivision.
-            agent_model_ref="openclaw/architect",
-            skill_ref="docx-architecture-advisor",
+            skill_set_ref="docx-architecture-advisor",
+            skill_set_version="1.0.0",
             rule_pack_ref="technical-architecture/architecture-rules.md",
             rule_pack_version="1.0.0",
         )
@@ -232,15 +232,68 @@ class AuditAgentDefinition(BaseModel):
     version: str
     dimension: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     scope: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]*$")
-    agent_backend: AgentBackend = AgentBackend.OPENCLAW
-    agent_model_ref: str
-    skill_ref: str
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    skill_set_ref: str = Field(validation_alias=AliasChoices("skill_set_ref", "skill_ref"))
+    skill_set_version: str | None = None
     rule_pack_ref: str
     rule_pack_version: str
+
+    @model_validator(mode="after")
+    def validate_skill_set_identity(self) -> "AuditAgentDefinition":
+        normalized = self.skill_set_ref.replace("\\", "/")
+        parts = normalized.split("/")
+        if (
+            normalized.startswith("/")
+            or ":" in normalized
+            or any(part in {"", ".", ".."} for part in parts)
+        ):
+            raise ValueError("skill_set_ref must be a safe relative path")
+        self.skill_set_ref = normalized
+        self.skill_set_version = self.skill_set_version or self.version
+        if (
+            "/" in self.skill_set_version
+            or "\\" in self.skill_set_version
+            or self.skill_set_version in {"", ".", ".."}
+        ):
+            raise ValueError("skill_set_version must be a single non-empty path segment")
+        return self
 
     @property
     def artifact_stem(self) -> str:
         return ".".join(part for part in (self.dimension, self.scope) if part)
+
+
+class AgentRouteDefinition(BaseModel):
+    """Backend-neutral route assigned to a logical audit Agent."""
+
+    route_id: str = Field(pattern=r"^[a-z][a-z0-9-/]*$")
+    version: str
+    agent_id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    agent_version: str
+    is_default: bool = True
+
+
+class AgentRuntimeBinding(BaseModel):
+    """Frozen execution snapshot resolved from a logical Agent route."""
+
+    route_id: str
+    route_version: str
+    route_config_version: str
+    backend: AgentBackend
+    target_ref: str
+    provider: str | None = None
+    model: str | None = None
+    profile: str | None = None
+
+    @property
+    def model_ref(self) -> str:
+        """Compatibility projection used by the existing artifact contract."""
+        return self.model or self.target_ref
+
+    @property
+    def runtime_config_ref(self) -> str | None:
+        return self.profile
 
 
 class ReviewTypeDefinition(BaseModel):
@@ -257,10 +310,28 @@ class ReviewTypeDefinition(BaseModel):
     visual_policy: dict[str, object] = Field(default_factory=dict)
     profile: AuditProfile
     agents: list[AuditAgentDefinition] = Field(default_factory=list)
+    agent_routes: list[AgentRouteDefinition] = Field(default_factory=list)
 
     def resolved_agents(self) -> list[AuditAgentDefinition]:
         """Return the Agent definitions registered for this review type."""
         return list(self.agents)
+
+    def route_for(self, agent: AuditAgentDefinition) -> AgentRouteDefinition:
+        matches = [
+            route
+            for route in self.agent_routes
+            if route.agent_id == agent.agent_id and route.agent_version == agent.version
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValueError(f"Duplicate Agent routes for {agent.agent_id}@{agent.version}")
+        return AgentRouteDefinition(
+            route_id=f"technical-audit/{agent.agent_id}",
+            version="legacy-compat",
+            agent_id=agent.agent_id,
+            agent_version=agent.version,
+        )
 
 
 class InputDocument(BaseModel):
@@ -335,6 +406,8 @@ class AgentRun(BaseModel):
     """One specialist execution inside an independently recoverable attempt."""
 
     agent: AuditAgentDefinition
+    # Optional only for persisted runs created before runtime bindings existed.
+    runtime_binding: AgentRuntimeBinding | None = None
     # ${findingsDir}/${dimension}/${scope}.findings.json
     result_uri: str
     # Frozen at attempt preparation time.  It records the backend that actually
@@ -347,9 +420,24 @@ class AgentRun(BaseModel):
     # Local worker directory used by process-backed gateways such as DSH.  This
     # is deliberately distinct from the shared read-only attempt work bundle.
     workspace_path: str | None = None
+    # Runtime-generated adapter configuration. It is not part of Agent identity.
+    runtime_patch_path: str | None = None
     status: AgentRunStatus = AgentRunStatus.PREPARED
     gateway_response_id: str | None = None
     error: str | None = None
+
+    @property
+    def resolved_runtime_binding(self) -> AgentRuntimeBinding:
+        if self.runtime_binding is not None:
+            return self.runtime_binding
+        backend = self.execution_backend or AgentBackend.OPENCLAW
+        return AgentRuntimeBinding(
+            route_id=f"technical-audit/{self.agent.agent_id}",
+            route_version="legacy-compat",
+            route_config_version="legacy-compat",
+            backend=backend,
+            target_ref=f"{backend.value}/audit-runtime",
+        )
 
 
 class TaskCreatedResponse(BaseModel):

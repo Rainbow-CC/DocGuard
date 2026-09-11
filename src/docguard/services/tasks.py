@@ -29,6 +29,7 @@ from docguard.services.projects import InMemoryProjectStore, ProjectStore
 from docguard.services.profiles import ReviewTypeRegistry
 from docguard.services.preprocessing import AuditPreprocessor, PreprocessingError, DocxPreprocessor
 from docguard.services.reporting import render_markdown
+from docguard.services.runtime_routes import RuntimeRouteResolver
 from docguard.services.store import TaskStore
 from docguard.settings import Settings
 
@@ -47,13 +48,22 @@ class AuditTaskService:
         preprocessor: AuditPreprocessor | None = None,
         settings: Settings | None = None,
         dsh_gateway: AgentGateway | None = None,
+        runtime_routes: RuntimeRouteResolver | None = None,
     ) -> None:
         settings = settings or Settings.from_environment()
         self.store = store
         self.settings = settings
         self.review_types = review_types
+        self.runtime_routes = runtime_routes or RuntimeRouteResolver.from_file(
+            settings.runtime_routes_path
+        )
         self.projects = projects or InMemoryProjectStore()
-        self.artifacts = artifacts or ArtifactStore(settings.result_write_root, settings.result_agent_root)
+        self.artifacts = artifacts or ArtifactStore(
+            settings.result_write_root,
+            settings.result_agent_root,
+            settings.dsh_skill_set_root,
+            self.runtime_routes,
+        )
         # ``agent_gateway`` remains the OpenClaw injection seam for compatibility.
         # Artifact-backed dispatch selects the provider explicitly instead of
         # constructing DSH ad hoc inside ``_run_dsh``.
@@ -64,6 +74,7 @@ class AuditTaskService:
             dsh_home=settings.dsh_home,
             provider=settings.dsh_provider,
             model=settings.dsh_model,
+            profile=settings.dsh_profile,
             max_tokens=settings.dsh_max_tokens,
         )
         self.artifact_gateways: dict[AgentBackend, AgentGateway] = {
@@ -89,7 +100,16 @@ class AuditTaskService:
         # A task-level request explicitly overrides the registered provider.
         # Otherwise the frozen review type decides its own default; a process-wide
         # environment default must not silently route OpenClaw specialists to DSH.
-        backend = request.agent_backend or agents[0].agent_backend
+        if request.agent_backend is not None:
+            backend = request.agent_backend
+        else:
+            defaults = {
+                self.runtime_routes.default_backend(review_type.route_for(agent))
+                for agent in agents
+            }
+            if len(defaults) != 1:
+                raise ValueError("Review type agents do not share one default runtime backend")
+            backend = defaults.pop()
         task = AuditTask(
             project_id=project.project_id,
             document=request.document,

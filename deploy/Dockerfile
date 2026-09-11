@@ -29,8 +29,16 @@ COPY doc-audit-integrate-skill ./doc-audit-integrate-skill
 COPY tect-doc-structure-audit-skill ./tect-doc-structure-audit-skill
 COPY deploy/docker-entrypoint.sh /usr/local/bin/docguard-entrypoint
 COPY deploy/dsh-settings.yaml /opt/docguard-dsh-config/settings.yaml
+COPY deploy/runtime-routes.json ./deploy/runtime-routes.json
 COPY README.md ./
 RUN uv sync --frozen --no-dev
+
+# DSH customSkillDirs expects a directory whose direct children are Skill
+# bundles. Reuse the canonical Skill through a fixed catalog link; Agent runs
+# reference this catalog and never copy the Skill into their per-attempt cwd.
+RUN mkdir -p /app/agent-skill-sets/docx-tech-architecture-audit/1.0.0 \
+    && ln -s /app/doc-audit-integrate-skill \
+        /app/agent-skill-sets/docx-tech-architecture-audit/1.0.0/docx-tech-architecture-audit
 
 # The bind-mounted runtime directory must be writable by this UID (see deploy/README.md).
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin docguard \

@@ -1,0 +1,33 @@
+{
+  "version": "2026-09-11.1",
+  "routes": {
+    "technical-audit/content-reviewer": {
+      "default_backend": "openclaw",
+      "backends": {
+        "openclaw": {
+          "target_ref": "openclaw/audit-runtime"
+        },
+        "dsh": {
+          "target_ref": "dsh/sdk",
+          "provider": "minimax-cn",
+          "model": "MiniMax-M3",
+          "profile": "sdk"
+        }
+      }
+    },
+    "technical-audit/structure-reviewer": {
+      "default_backend": "openclaw",
+      "backends": {
+        "openclaw": {
+          "target_ref": "openclaw/tech-audit-structure-reviewer"
+        },
+        "dsh": {
+          "target_ref": "dsh/sdk",
+          "provider": "minimax-cn",
+          "model": "MiniMax-M3",
+          "profile": "sdk"
+        }
+      }
+    }
+  }
+}

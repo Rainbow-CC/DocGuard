@@ -57,7 +57,7 @@ def artifact_prompt(task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> st
             f"DOCGUARD_AGENT_ID={run.agent.agent_id}",
             f"DOCGUARD_AGENT_VERSION={run.agent.version}",
             f"DOCGUARD_AGENT_BACKEND={execution_backend.value}",
-            f"DOCGUARD_AGENT_MODEL_REF={run.agent.agent_model_ref}",
+            f"DOCGUARD_AGENT_MODEL_REF={run.resolved_runtime_binding.model_ref}",
             f"DOCGUARD_DIMENSION={run.agent.dimension}",
             f"DOCGUARD_SCOPE={run.agent.scope or ''}",
             f"DOCGUARD_REVIEW_TYPE={task.review_type.review_type_id}",
@@ -137,7 +137,7 @@ class OpenClawAgentGateway:
         if task.review_type is None:
             raise GatewayExecutionError("Task has no frozen review type definition")
         request: dict[str, object] = {
-            "model": run.agent.agent_model_ref,
+            "model": run.resolved_runtime_binding.model_ref,
             # A task can be retried and runs one independent session per specialist.
             # Keep those trajectories isolated so an action-chain export can identify
             # exactly one session from task, attempt, and Agent identity.
@@ -242,12 +242,14 @@ class DshAgentGateway:
         dsh_home: str | None = None,
         provider: str | None = None,
         model: str | None = None,
+        profile: str | None = None,
         max_tokens: int | None = None,
     ) -> None:
         settings = Settings.from_environment()
         self.dsh_home = dsh_home or settings.dsh_home
         self.provider = provider or settings.dsh_provider
         self.model = model or settings.dsh_model
+        self.profile = profile or settings.dsh_profile
         self.max_tokens = max_tokens or settings.dsh_max_tokens
 
     def audit_full_text(self, profile: AuditProfile) -> list[Finding]:
@@ -274,8 +276,10 @@ class DshAgentGateway:
             with DeepSeekHarness(
                 dsh_home=self.dsh_home,
                 cwd=run.workspace_path,
-                provider=self.provider,
-                model=self.model,
+                patches=(run.runtime_patch_path,) if run.runtime_patch_path else (),
+                provider=run.resolved_runtime_binding.provider or self.provider,
+                model=run.resolved_runtime_binding.model or self.model,
+                profile=run.resolved_runtime_binding.runtime_config_ref or self.profile,
                 max_tokens=self.max_tokens,
             ) as harness:
                 result = harness.run(prompt, session_id=session_id)
@@ -312,8 +316,10 @@ class DshAgentGateway:
             with DeepSeekHarness(
                 dsh_home=self.dsh_home,
                 cwd=run.workspace_path,
-                provider=self.provider,
-                model=self.model,
+                patches=(run.runtime_patch_path,) if run.runtime_patch_path else (),
+                provider=run.resolved_runtime_binding.provider or self.provider,
+                model=run.resolved_runtime_binding.model or self.model,
+                profile=run.resolved_runtime_binding.runtime_config_ref or self.profile,
                 max_tokens=self.max_tokens,
             ) as harness:
                 result = harness.run(prompt, session_id=session_id)

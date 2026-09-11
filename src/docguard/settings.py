@@ -45,10 +45,13 @@ class Settings:
     openclaw_api_token: str
     action_chain_export_enabled: bool
     default_agent_backend: AgentBackend
+    runtime_routes_path: Path
     dsh_home: str | None
     dsh_provider: str
     dsh_model: str
+    dsh_profile: str
     dsh_max_tokens: int
+    dsh_skill_set_root: Path
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -78,8 +81,15 @@ class Settings:
             openclaw_api_token=_env("OPENCLAW_API_TOKEN", ""),
             action_chain_export_enabled=_enabled("DOCGUARD_ACTION_CHAIN_EXPORT_ENABLED"),
             default_agent_backend=AgentBackend(_env("DOCGUARD_DEFAULT_AGENT_BACKEND", "dsh")),
+            runtime_routes_path=Path(
+                _env("DOCGUARD_RUNTIME_ROUTES_PATH", str(PROJECT_ROOT / "deploy" / "runtime-routes.json"))
+            ),
             dsh_home=os.getenv("DOCGUARD_DSH_HOME"),
             dsh_provider=_env("DOCGUARD_DSH_PROVIDER", "deepseek-official"),
             dsh_model=_env("DOCGUARD_DSH_MODEL", "deepseek-v4-flash"),
+            dsh_profile=_env("DOCGUARD_DSH_PROFILE", "sdk"),
             dsh_max_tokens=int(_env("DOCGUARD_DSH_MAX_TOKENS", "49152")),
+            dsh_skill_set_root=Path(
+                _env("DOCGUARD_DSH_SKILL_SET_ROOT", str(PROJECT_ROOT / "agent-skill-sets"))
+            ),
         )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from docguard.domain.models import AuditAgentDefinition, ReviewTypeDefinition
+from docguard.domain.models import AgentRouteDefinition, AuditAgentDefinition, ReviewTypeDefinition
 from docguard.settings import Settings
 from docguard.services.sqlite import connect_existing_database
 
@@ -39,17 +39,40 @@ class ReviewTypeRegistry:
                 ORDER BY review.review_type_id, review.version, assignment.position
                 """
             ).fetchall()
+            route_rows = connection.execute(
+                """
+                SELECT assignment.review_type_id, assignment.review_type_version,
+                       route.definition AS route_definition,
+                       route.is_default
+                FROM review_type_agent_definitions AS assignment
+                JOIN agent_routes AS route
+                  ON route.agent_definition_pk = assignment.agent_definition_pk
+                WHERE route.enabled = 1
+                ORDER BY assignment.review_type_id, assignment.review_type_version,
+                         route.is_default DESC, route.agent_route_pk
+                """
+            ).fetchall()
         definitions_by_key: dict[tuple[str, str], ReviewTypeDefinition] = {}
         for row in rows:
             definition = ReviewTypeDefinition.model_validate_json(row["review_definition"])
             key = (definition.review_type_id, definition.version)
             if key not in definitions_by_key:
                 definition.agents = []
+                definition.agent_routes = []
                 definitions_by_key[key] = definition
             if row["agent_definition"] is not None:
                 definitions_by_key[key].agents.append(
                     AuditAgentDefinition.model_validate_json(row["agent_definition"])
                 )
+        for row in route_rows:
+            key = (row["review_type_id"], row["review_type_version"])
+            definition = definitions_by_key.get(key)
+            if definition is None:
+                continue
+            route = AgentRouteDefinition.model_validate_json(row["route_definition"])
+            route.is_default = bool(row["is_default"])
+            if route not in definition.agent_routes:
+                definition.agent_routes.append(route)
         definitions = list(definitions_by_key.values())
         self._definitions = {definition.review_type_id: definition for definition in definitions}
 
@@ -80,10 +103,11 @@ class ReviewTypeRegistry:
                     definition.review_type_id,
                     definition.version,
                     int(enabled),
-                    definition.model_dump_json(exclude={"agents"}),
+                    definition.model_dump_json(exclude={"agents", "agent_routes"}),
                 ),
             )
             self._replace_agent_assignments(connection, definition)
+            self._register_agent_routes(connection, definition)
         self.reload()
 
     def register_agent(self, definition: AuditAgentDefinition, *, enabled: bool = True) -> None:
@@ -130,6 +154,69 @@ class ReviewTypeRegistry:
             (definition.agent_id, definition.version, int(enabled), definition.model_dump_json()),
         )
         return int(cursor.lastrowid)
+
+    @staticmethod
+    def _register_agent_routes(
+        connection: sqlite3.Connection, definition: ReviewTypeDefinition
+    ) -> None:
+        agent_pks = {
+            (agent.agent_id, agent.version): ReviewTypeRegistry._get_or_create_agent_pk(
+                connection, agent
+            )
+            for agent in definition.agents
+        }
+        for route in definition.agent_routes:
+            agent_pk = agent_pks.get((route.agent_id, route.agent_version))
+            if agent_pk is None:
+                raise ValueError(
+                    f"Agent route {route.route_id} references an unassigned Agent"
+                )
+            payload = route.model_dump_json(exclude={"is_default"})
+            existing = connection.execute(
+                """
+                SELECT agent_route_pk, definition
+                FROM agent_routes
+                WHERE route_id = ? AND version = ?
+                """,
+                (route.route_id, route.version),
+            ).fetchone()
+            if existing is not None:
+                stored = AgentRouteDefinition.model_validate_json(existing["definition"])
+                if stored.model_copy(update={"is_default": False}) != route.model_copy(
+                    update={"is_default": False}
+                ):
+                    raise ValueError(
+                        f"Agent route {route.route_id}@{route.version} is immutable"
+                    )
+                route_pk = existing["agent_route_pk"]
+            else:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO agent_routes
+                        (route_id, version, agent_definition_pk, enabled, is_default, definition)
+                    VALUES (?, ?, ?, 1, ?, ?)
+                    """,
+                    (
+                        route.route_id,
+                        route.version,
+                        agent_pk,
+                        int(route.is_default),
+                        payload,
+                    ),
+                )
+                route_pk = cursor.lastrowid
+            if route.is_default:
+                connection.execute(
+                    """
+                    UPDATE agent_routes SET is_default = 0
+                    WHERE agent_definition_pk = ? AND agent_route_pk != ?
+                    """,
+                    (agent_pk, route_pk),
+                )
+            connection.execute(
+                "UPDATE agent_routes SET is_default = ? WHERE agent_route_pk = ?",
+                (int(route.is_default), route_pk),
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = connect_existing_database(self.database_path, timeout=5)

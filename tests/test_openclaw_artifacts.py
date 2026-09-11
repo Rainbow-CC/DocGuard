@@ -26,7 +26,7 @@ def _result(task, attempt, run) -> dict[str, object]:
         "scope": run.agent.scope,
         "producer_agent_id": run.agent.agent_id,
         "producer_agent_version": run.agent.version,
-        "producer_model_ref": run.agent.agent_model_ref,
+        "producer_model_ref": run.resolved_runtime_binding.model_ref,
         "findings": [
             {
                 "finding_id": "fd_example",

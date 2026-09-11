@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import subprocess
 import sys
@@ -44,9 +45,24 @@ def test_operations_init_script_provisions_schema_and_seed_data(tmp_path) -> Non
         }
         review_type_count = connection.execute("SELECT COUNT(*) FROM review_type_definitions").fetchone()[0]
         agent_count = connection.execute("SELECT COUNT(*) FROM agent_definitions").fetchone()[0]
-    assert {"review_type_definitions", "agent_definitions", "audit_tasks", "vision_response_cache"} <= tables
+        agent_definition = json.loads(
+            connection.execute("SELECT definition FROM agent_definitions").fetchone()[0]
+        )
+        routes = connection.execute(
+            "SELECT route_id, is_default FROM agent_routes ORDER BY route_id"
+        ).fetchall()
+    assert {
+        "review_type_definitions",
+        "agent_definitions",
+        "agent_routes",
+        "audit_tasks",
+        "vision_response_cache",
+    } <= tables
     assert review_type_count == 1
     assert agent_count == 1
+    assert "agent_backend" not in agent_definition
+    assert "agent_model_ref" not in agent_definition
+    assert routes == [("technical-audit/content-reviewer", 1)]
 
 
 def test_application_does_not_create_a_missing_database(tmp_path) -> None:

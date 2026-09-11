@@ -27,6 +27,7 @@ def provision_database(database_path: Path | str) -> list[str]:
         for script in scripts:
             connection.executescript(script.read_text(encoding="utf-8"))
         _upgrade_legacy_embedded_agents(connection)
+        _upgrade_agent_routes(connection)
         _upgrade_audit_task_projects(connection)
     return [script.name for script in scripts]
 
@@ -133,6 +134,73 @@ def _upgrade_audit_task_projects(connection: sqlite3.Connection) -> None:
     )
 
 
+def _upgrade_agent_routes(connection: sqlite3.Connection) -> None:
+    """Normalize logical Agents and attach backend-neutral execution routes."""
+
+    rows = connection.execute(
+        "SELECT agent_definition_pk, agent_id, version, definition FROM agent_definitions"
+    ).fetchall()
+    for row in rows:
+        definition = json.loads(row["definition"])
+        definition.pop("agent_model_ref", None)
+        definition.pop("agent_backend", None)
+        definition.pop("workspace_ref", None)
+        definition.pop("workspace_version", None)
+        if "skill_ref" in definition and "skill_set_ref" not in definition:
+            definition["skill_set_ref"] = definition.pop("skill_ref")
+        definition.setdefault("skill_set_version", definition["version"])
+        connection.execute(
+            "UPDATE agent_definitions SET definition = ? WHERE agent_definition_pk = ?",
+            (
+                json.dumps(definition, ensure_ascii=False, separators=(",", ":")),
+                row["agent_definition_pk"],
+            ),
+        )
+        route_id = f"technical-audit/{row['agent_id']}"
+        payload = {
+            "route_id": route_id,
+            "version": row["version"],
+            "agent_id": row["agent_id"],
+            "agent_version": row["version"],
+            "is_default": True,
+        }
+        connection.execute(
+            """
+            INSERT INTO agent_routes
+                (route_id, version, agent_definition_pk, enabled, is_default, definition)
+            VALUES (?, ?, ?, 1, 1, ?)
+            ON CONFLICT(route_id, version) DO UPDATE SET is_default = 1
+            """,
+            (
+                route_id,
+                row["version"],
+                row["agent_definition_pk"],
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            ),
+        )
+
+    review_rows = connection.execute(
+        "SELECT review_type_id, version, definition FROM review_type_definitions"
+    ).fetchall()
+    for row in review_rows:
+        definition = json.loads(row["definition"])
+        removed_runtime = definition.pop("runtime_bindings", None)
+        removed_routes = definition.pop("agent_routes", None)
+        if removed_runtime is not None or removed_routes is not None:
+            connection.execute(
+                """
+                UPDATE review_type_definitions SET definition = ?
+                WHERE review_type_id = ? AND version = ?
+                """,
+                (
+                    json.dumps(definition, ensure_ascii=False, separators=(",", ":")),
+                    row["review_type_id"],
+                    row["version"],
+                ),
+            )
+    connection.execute("DROP TABLE IF EXISTS agent_runtime_bindings")
+
+
 def _replace_agent_assignments(
     connection: sqlite3.Connection, review_type_id: str, review_type_version: str, agents: list[object]
 ) -> None:
@@ -152,7 +220,7 @@ def _replace_agent_assignments(
             (agent_id, version),
         ).fetchone()
         if existing is not None:
-            if json.loads(existing["definition"]) != agent:
+            if not _agent_definitions_equal(json.loads(existing["definition"]), agent):
                 raise RuntimeError(f"Agent {agent_id}@{version} conflicts with the stored definition")
             agent_definition_pk = existing["agent_definition_pk"]
         else:
@@ -172,6 +240,26 @@ def _replace_agent_assignments(
             """,
             (review_type_id, review_type_version, agent_definition_pk, position),
         )
+
+
+def _agent_definitions_equal(stored: object, incoming: object) -> bool:
+    """Compare legacy backend-coupled and current neutral Agent definitions."""
+    if not isinstance(stored, dict) or not isinstance(incoming, dict):
+        return stored == incoming
+    def normalize(value: dict[str, object]) -> dict[str, object]:
+        result = dict(value)
+        result.pop("agent_backend", None)
+        result.pop("agent_model_ref", None)
+        result.pop("workspace_ref", None)
+        result.pop("workspace_version", None)
+        if "skill_ref" in result and "skill_set_ref" not in result:
+            result["skill_set_ref"] = result.pop("skill_ref")
+        result.setdefault("skill_set_version", result.get("version"))
+        return {key: item for key, item in result.items() if item is not None}
+
+    normalized_stored = normalize(stored)
+    normalized_incoming = normalize(incoming)
+    return normalized_stored == normalized_incoming
 
 
 def main() -> None:
