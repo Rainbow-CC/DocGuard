@@ -15,13 +15,13 @@ def _route(route_id: str = "technical-audit/content-reviewer") -> AgentRouteDefi
     )
 
 
-def test_runtime_route_defaults_to_openclaw_and_resolves_dsh_model() -> None:
+def test_runtime_route_defaults_to_dsh_and_resolves_dsh_model() -> None:
     resolver = RuntimeRouteResolver.from_file(
         Path(__file__).parents[1] / "deploy" / "runtime-routes.json"
     )
 
-    assert resolver.default_backend(_route()) is AgentBackend.OPENCLAW
-    assert resolver.resolve(_route()).target_ref == "openclaw/audit-runtime"
+    assert resolver.default_backend(_route()) is AgentBackend.DSH
+    assert resolver.resolve(_route()).target_ref == "dsh/sdk"
 
     dsh = resolver.resolve(_route(), AgentBackend.DSH)
     assert dsh.provider == "minimax-cn"

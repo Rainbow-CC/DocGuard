@@ -23,6 +23,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
+# Fail the image build when the SDK's matching Linux runtime wheel is absent.
+# DeepSeekHarness resolves this bundled executable and starts it over stdio.
+RUN .venv/bin/python -c "from importlib.metadata import version; from deepseek_harness_runtime import resolve_bundled_launch_args; runtime = resolve_bundled_launch_args()[0]; assert version('deepseek-harness-sdk') == version('deepseek-harness-runtime-bin'); assert runtime"
+
 COPY src ./src
 COPY init ./init
 COPY doc-audit-integrate-skill ./doc-audit-integrate-skill
@@ -37,8 +41,11 @@ RUN uv sync --frozen --no-dev
 # bundles. Reuse the canonical Skill through a fixed catalog link; Agent runs
 # reference this catalog and never copy the Skill into their per-attempt cwd.
 RUN mkdir -p /app/agent-skill-sets/docx-tech-architecture-audit/1.0.0 \
+        /app/agent-skill-sets/docx-tech-format-audit/1.0.0 \
     && ln -s /app/doc-audit-integrate-skill \
-        /app/agent-skill-sets/docx-tech-architecture-audit/1.0.0/docx-tech-architecture-audit
+        /app/agent-skill-sets/docx-tech-architecture-audit/1.0.0/docx-tech-architecture-audit \
+    && ln -s /app/tect-doc-structure-audit-skill \
+        /app/agent-skill-sets/docx-tech-format-audit/1.0.0/docx-tech-format-audit
 
 # The bind-mounted runtime directory must be writable by this UID (see deploy/README.md).
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin docguard \

@@ -365,7 +365,7 @@ class AuditTaskService:
                     )
                 else:
                     self._set_agent_run_status(run, AgentRunStatus.COLLECTING)
-        errors = [run.error for run in attempt.agent_runs if run.error]
+        errors = list(dict.fromkeys(run.error for run in attempt.agent_runs if run.error))
         attempt.error = "; ".join(errors) if errors else None
 
     def _artifact_gateway(self, backend: AgentBackend) -> AgentGateway:

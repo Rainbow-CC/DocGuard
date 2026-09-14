@@ -36,7 +36,9 @@ def test_operations_init_script_provisions_schema_and_seed_data(tmp_path) -> Non
     assert "Provisioned" in second.stdout
     registry = ReviewTypeRegistry(database_path)
     assert [definition.review_type_id for definition in registry.list()] == ["technical-architecture"]
-    assert registry.get("technical-architecture").agents[0].agent_id == "content-reviewer"
+    assert [
+        agent.agent_id for agent in registry.get("technical-architecture").agents
+    ] == ["content-reviewer", "structure-reviewer"]
 
     with sqlite3.connect(database_path) as connection:
         tables = {
@@ -45,9 +47,12 @@ def test_operations_init_script_provisions_schema_and_seed_data(tmp_path) -> Non
         }
         review_type_count = connection.execute("SELECT COUNT(*) FROM review_type_definitions").fetchone()[0]
         agent_count = connection.execute("SELECT COUNT(*) FROM agent_definitions").fetchone()[0]
-        agent_definition = json.loads(
-            connection.execute("SELECT definition FROM agent_definitions").fetchone()[0]
-        )
+        agent_definitions = [
+            json.loads(row[0])
+            for row in connection.execute(
+                "SELECT definition FROM agent_definitions ORDER BY agent_id"
+            ).fetchall()
+        ]
         routes = connection.execute(
             "SELECT route_id, is_default FROM agent_routes ORDER BY route_id"
         ).fetchall()
@@ -59,10 +64,13 @@ def test_operations_init_script_provisions_schema_and_seed_data(tmp_path) -> Non
         "vision_response_cache",
     } <= tables
     assert review_type_count == 1
-    assert agent_count == 1
-    assert "agent_backend" not in agent_definition
-    assert "agent_model_ref" not in agent_definition
-    assert routes == [("technical-audit/content-reviewer", 1)]
+    assert agent_count == 2
+    assert all("agent_backend" not in definition for definition in agent_definitions)
+    assert all("agent_model_ref" not in definition for definition in agent_definitions)
+    assert routes == [
+        ("technical-audit/content-reviewer", 1),
+        ("technical-audit/structure-reviewer", 1),
+    ]
 
 
 def test_application_does_not_create_a_missing_database(tmp_path) -> None:

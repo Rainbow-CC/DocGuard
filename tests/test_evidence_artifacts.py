@@ -184,8 +184,12 @@ def test_artifact_scans_multiple_final_files_and_ignores_temporary_files(
 
     results = artifacts.read_results(task, attempt)
 
-    assert [result.dimension for result in results] == ["architecture", "content"]
-    assert sum(len(result.findings) for result in results) == 2
+    assert [result.dimension for result in results] == [
+        "architecture",
+        "content",
+        "structure",
+    ]
+    assert sum(len(result.findings) for result in results) == 3
 
 
 def test_evidence_api_returns_bundle_and_image(

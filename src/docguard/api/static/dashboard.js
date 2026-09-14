@@ -68,7 +68,7 @@
   let activePageId = 'home';
   const evidenceCache = new Map();
 
-  const backendLabels = { stub: 'STANDARD', openclaw: 'OPENCLAW', langchain: 'LANGCHAIN' };
+  const backendLabels = { stub: 'STANDARD', openclaw: 'OPENCLAW', dsh: 'DSH', langchain: 'LANGCHAIN' };
   const terminalStates = new Set(['completed', 'failed', 'cancelled']);
   const statusLabels = { queued:'排队中', running:'审核中', collecting:'收集中', retrying:'重试中', completed:'已完成', failed:'失败', cancelled:'已取消' };
   const severityOrder = ['重大', '一般', '优化', '观察'];
@@ -413,7 +413,9 @@
     }
     const completed = task.status === 'completed';
     elements.details.hidden = !completed;
-    elements.continue.hidden = !(task.status === 'collecting' && task.agent_backend === 'openclaw');
+    elements.continue.hidden = !(
+      task.status === 'collecting' && ['openclaw', 'dsh'].includes(task.agent_backend)
+    );
     if (completed) renderFindingsSummary(task.findings || []); else elements.summary.hidden = true;
     if (completed && detailTaskId === task.task_id) renderFindings(task, task.findings || []); else elements.panel.hidden = true;
   }

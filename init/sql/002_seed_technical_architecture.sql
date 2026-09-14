@@ -16,6 +16,15 @@ VALUES (
     '{"agent_id":"content-reviewer","version":"1.0.0","dimension":"content","scope":null,"skill_set_ref":"docx-tech-architecture-audit","skill_set_version":"1.0.0","rule_pack_ref":"technical-architecture/review-rules.md","rule_pack_version":"1.0.0"}'
 );
 
+INSERT OR IGNORE INTO agent_definitions
+    (agent_id, version, enabled, definition)
+VALUES (
+    'structure-reviewer',
+    '1.0.0',
+    1,
+    '{"agent_id":"structure-reviewer","version":"1.0.0","dimension":"structure","scope":null,"skill_set_ref":"docx-tech-format-audit","skill_set_version":"1.0.0","rule_pack_ref":"review-rules.md","rule_pack_version":"1.0.0"}'
+);
+
 INSERT OR IGNORE INTO review_type_agent_definitions
     (review_type_id, review_type_version, agent_definition_pk, position)
 SELECT
@@ -25,3 +34,13 @@ SELECT
     0
 FROM agent_definitions
 WHERE agent_id = 'content-reviewer' AND version = '1.0.0';
+
+INSERT OR IGNORE INTO review_type_agent_definitions
+    (review_type_id, review_type_version, agent_definition_pk, position)
+SELECT
+    'technical-architecture',
+    '1.0.0',
+    agent_definition_pk,
+    1
+FROM agent_definitions
+WHERE agent_id = 'structure-reviewer' AND version = '1.0.0';

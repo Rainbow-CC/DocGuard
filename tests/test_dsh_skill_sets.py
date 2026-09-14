@@ -37,6 +37,27 @@ def test_writes_isolated_dsh_patch_without_copying_skills(tmp_path: Path) -> Non
     assert "includeDefaultRoots: false" in content
     assert "watch: false" in content
     assert json.dumps(str(skill_set.resolve())) in content
+
+
+def test_structure_reviewer_resolves_its_own_skill_set(tmp_path: Path) -> None:
+    skill_set_root = tmp_path / "skill-sets"
+    skill_set = skill_set_root / "docx-tech-format-audit" / "1.0.0"
+    (skill_set / "docx-tech-format-audit").mkdir(parents=True)
+    run_workspace = tmp_path / "agent-work" / "structure"
+    run_workspace.mkdir(parents=True)
+    agent = _agent(
+        agent_id="structure-reviewer",
+        dimension="structure",
+        skill_set_ref="docx-tech-format-audit",
+    )
+
+    patch = DshSkillSetResolver(skill_set_root).write_isolation_patch(
+        agent, run_workspace
+    )
+
+    content = patch.read_text(encoding="utf-8")
+    assert json.dumps(str(skill_set.resolve())) in content
+    assert "includeDefaultRoots: false" in content
     assert not (run_workspace / "content-audit").exists()
 
 

@@ -65,6 +65,12 @@ def test_agents_are_registered_once_and_can_be_reused_by_review_types(
     second.version = "1.0.0"
     second.display_name = "概要设计审核"
     second.agents = [shared_agent]
+    second.agent_routes = [
+        route
+        for route in second.agent_routes
+        if route.agent_id == shared_agent.agent_id
+        and route.agent_version == shared_agent.version
+    ]
     registry.register(second)
 
     with sqlite3.connect(database_path) as connection:
@@ -77,7 +83,7 @@ def test_agents_are_registered_once_and_can_be_reused_by_review_types(
         ).fetchone()[0]
 
     assert agent_count == 1
-    assert assignments == 2
+    assert assignments == 3
     assert registry.get("overview-design").agents == [shared_agent]
 
 
@@ -109,4 +115,4 @@ def test_registry_migrates_legacy_embedded_agent_definitions(
 
     assert registry.get("legacy-review").agents == technical_review_type.agents
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM agent_definitions").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM agent_definitions").fetchone()[0] == 2

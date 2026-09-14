@@ -1,8 +1,8 @@
 {
-  "version": "2026-09-11.1",
+  "version": "2026-09-14.1",
   "routes": {
     "technical-audit/content-reviewer": {
-      "default_backend": "openclaw",
+      "default_backend": "dsh",
       "backends": {
         "openclaw": {
           "target_ref": "openclaw/audit-runtime"
@@ -16,7 +16,7 @@
       }
     },
     "technical-audit/structure-reviewer": {
-      "default_backend": "openclaw",
+      "default_backend": "dsh",
       "backends": {
         "openclaw": {
           "target_ref": "openclaw/tech-audit-structure-reviewer"
