@@ -4,7 +4,7 @@
 
 ## 1. 部署概况
 
-- 服务器：`47.79.35.184`
+- 服务器：`47.79.35.184`  root/ubuntuTokyo!
 - 操作系统：Ubuntu 24.04 LTS，Linux x86_64
 - 项目目录：`/opt/docguard`
 - Git 分支：`ui-optimization`

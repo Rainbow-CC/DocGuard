@@ -12,6 +12,8 @@ deploy/.env
 deploy/runtime/
 .idea/
 .jbeval/
+.obsidian/
+.vscode/
 doc-audit-integrate-skill/.obsidian/
 doc-audit-integrate-skill.zip
 README.pdf
