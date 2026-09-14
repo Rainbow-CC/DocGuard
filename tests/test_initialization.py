@@ -73,6 +73,32 @@ def test_operations_init_script_provisions_schema_and_seed_data(tmp_path) -> Non
     ]
 
 
+def test_operations_upgrade_normalizes_legacy_structure_skill_set(tmp_path) -> None:
+    database_path = tmp_path / "docguard.sqlite3"
+    _provision(database_path)
+    with sqlite3.connect(database_path) as connection:
+        row = connection.execute(
+            "SELECT agent_definition_pk, definition FROM agent_definitions WHERE agent_id = ?",
+            ("structure-reviewer",),
+        ).fetchone()
+        definition = json.loads(row[1])
+        definition["skill_set_ref"] = "docx-tech-architecture-audit-structure-reviewer"
+        connection.execute(
+            "UPDATE agent_definitions SET definition = ? WHERE agent_definition_pk = ?",
+            (json.dumps(definition), row[0]),
+        )
+
+    _provision(database_path)
+
+    registry = ReviewTypeRegistry(database_path)
+    structure = next(
+        agent
+        for agent in registry.get("technical-architecture").agents
+        if agent.agent_id == "structure-reviewer"
+    )
+    assert structure.skill_set_ref == "docx-tech-format-audit"
+
+
 def test_application_does_not_create_a_missing_database(tmp_path) -> None:
     database_path = tmp_path / "not-provisioned.sqlite3"
 

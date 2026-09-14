@@ -148,6 +148,15 @@ def _upgrade_agent_routes(connection: sqlite3.Connection) -> None:
         definition.pop("workspace_version", None)
         if "skill_ref" in definition and "skill_set_ref" not in definition:
             definition["skill_set_ref"] = definition.pop("skill_ref")
+        # The validation server used this transitional identifier before DSH
+        # SkillSets became backend-neutral. Normalize it to the catalog identity
+        # shipped by the image so an in-place database upgrade remains runnable.
+        if (
+            row["agent_id"] == "structure-reviewer"
+            and definition.get("skill_set_ref")
+            == "docx-tech-architecture-audit-structure-reviewer"
+        ):
+            definition["skill_set_ref"] = "docx-tech-format-audit"
         definition.setdefault("skill_set_version", definition["version"])
         connection.execute(
             "UPDATE agent_definitions SET definition = ? WHERE agent_definition_pk = ?",
