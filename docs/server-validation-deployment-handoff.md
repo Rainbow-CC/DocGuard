@@ -8,7 +8,7 @@
 - 操作系统：Ubuntu 24.04 LTS，Linux x86_64
 - 项目目录：`/opt/docguard`
 - Git 分支：`ui-optimization`
-- 本次核对的服务器提交：`50306a7`
+- 本次核对的服务器提交：`22db2de`
 - Compose 文件：`/opt/docguard/deploy/compose.yaml`
 - Compose 环境文件：`/opt/docguard/deploy/.env`
 - Compose 项目名：`deploy`
@@ -94,7 +94,10 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml ps
 - `DOCGUARD_DSH_HOME=/var/lib/docguard/dsh`
 - `DOCGUARD_DSH_PROVIDER=minimax-cn`
 - `DOCGUARD_DSH_MODEL=MiniMax-M3`
+- `DOCGUARD_DSH_PROFILE=sdk`
 - `DOCGUARD_DSH_MAX_TOKENS=49152`
+- `DOCGUARD_DSH_SKILL_SET_ROOT=/app/agent-skill-sets`
+- `DOCGUARD_RUNTIME_ROUTES_PATH=/app/deploy/runtime-routes.json`
 - `MINIMAX_CN_API_KEY`：DSH 的 MiniMax 凭据，不得写入 `settings.yaml`
 
 修改 `.env` 后，仅执行 `docker compose restart` 不会刷新容器环境。应执行：
@@ -234,18 +237,40 @@ with DeepSeekHarness(
 PY
 ```
 
-### 当前 DSH 设计限制
+### 当前 DSH 多 Agent 配置
 
-本次仅完成验证性部署，以下设计尚待后续优化：
+2026-09-14 已将正式验证环境默认审核后端切换为 DSH：
 
-1. 当前任务级 `agent_backend=dsh` 会覆盖审核类型中 AgentDefinition 的默认 backend。
-2. `ArtifactStore` 当前为每次 attempt 创建临时 `agent-work/<dimension>`，并把该临时目录作为 SDK 的 `cwd`。
-3. 两个 DSH Skill 当前位于 `$DSH_HOME/skills`，因此对所有 DSH workspace 全局可见，尚未做到 Agent 隔离。
-4. 预期设计是由 DSH AgentDefinition 携带可迁移的 `workspace_ref`，再相对 `DOCGUARD_DSH_WORKSPACE_ROOT` 解析为固定 workspace。
-5. 内容审核和结构审核应分别注册 DSH AgentDefinition、固定 workspace 和单独 Skill；不能只依靠任务级 backend 覆盖。
-6. `agent_model_ref` 目前可能仍保留 OpenClaw 风格值，和实际的 `minimax-cn/MiniMax-M3` 执行信息不完全一致。
+- `technical-audit/content-reviewer` 默认解析到 `dsh/sdk`，使用
+  `docx-tech-architecture-audit@1.0.0` SkillSet。
+- `technical-audit/structure-reviewer` 默认解析到 `dsh/sdk`，使用
+  `docx-tech-format-audit@1.0.0` SkillSet。
+- 每个 `AgentRun` 使用独立 `agent-work/<dimension>` 作为 SDK `cwd`、独立
+  session id 和独立 Skill 隔离 patch。
+- 隔离 patch 设置 `includeDefaultRoots: false`，只暴露当前 Agent 的
+  `customSkillDirs`；镜像中的版本化 SkillSet catalog 位于
+  `/app/agent-skill-sets`。
+- 数据库升级会把服务器早期使用的结构审核 Skill 标识
+  `docx-tech-architecture-audit-structure-reviewer` 规范化为
+  `docx-tech-format-audit`。
 
-因此，当前 DSH 已通过容器内 SDK/stdio 握手和 MiniMax 最小调用验证，但不应将现有路由结构视为最终设计。
+本次升级前已使用 SQLite backup API 创建备份：
+
+```text
+/opt/docguard/deploy/runtime/backups/docguard-before-dsh-20260914-144240.sqlite3
+```
+
+部署后已验证：
+
+- DocGuard 和 OpenClaw 容器均为 healthy，`/healthz` 返回成功。
+- Linux `deepseek-harness-sdk` 与 `deepseek-harness-runtime-bin` 均为
+  `0.1.2rc1`。
+- SDK 已完成 runtime `start`、stdio initialize 和 `close`，退出码为 0。
+- 数据库中的内容审核与结构审核 Agent 均解析到 DSH 默认 route，两个
+  SkillSet 的 `SKILL.md` 均可从镜像 catalog 读取。
+
+仍待后续生产强化的边界包括全局并发限制、AgentRun 超时、错误分类、
+`collecting` 截止时间，以及将每个 Agent 的输出写权限进一步收敛到私有目录。
 
 ### 宿主机早期验证环境
 
