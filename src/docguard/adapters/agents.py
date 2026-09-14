@@ -49,7 +49,9 @@ def artifact_prompt(task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> st
     manifest_path = attempt.input_manifest_uri.removeprefix("file://")
     result_path = run.result_uri.removeprefix("file://")
     document_path = task.document.source_uri.removeprefix("file://")
-    attempt_root = PurePosixPath(result_path).parent.parent
+    # Inputs remain in the shared attempt bundle even when DSH delivers output
+    # inside its cwd-confined private workspace.
+    attempt_root = PurePosixPath(attempt.result_uri.removeprefix("file://")).parent
     execution_backend = run.execution_backend or task.agent_backend
     return "\n".join(
         [

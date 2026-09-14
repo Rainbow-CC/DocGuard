@@ -180,6 +180,27 @@ class AuditTaskService:
                     self._set_agent_run_status(run, AgentRunStatus.COMPLETED)
                 elif run.status is not AgentRunStatus.FAILED:
                     self._set_agent_run_status(run, AgentRunStatus.COLLECTING)
+            missing_after_success = [
+                run.agent.artifact_stem
+                for run in attempt.agent_runs
+                if run.agent.artifact_stem not in completed_stems and not run.error
+            ]
+            if task.agent_backend is AgentBackend.DSH and missing_after_success:
+                error = (
+                    "DSH completed without required findings artifact: "
+                    + ", ".join(sorted(missing_after_success))
+                )
+                for run in attempt.agent_runs:
+                    if run.agent.artifact_stem in missing_after_success:
+                        self._set_agent_run_status(run, AgentRunStatus.FAILED, error)
+                self._set_attempt_status(attempt, AttemptStatus.FAILED, error)
+                logger.error(
+                    "task.collect.artifact_missing task_id=%s attempt_id=%s agents=%s",
+                    task_id,
+                    attempt.attempt_id,
+                    ",".join(sorted(missing_after_success)),
+                )
+                return self.store.update(task, status=TaskStatus.FAILED, error=error)
             self._set_attempt_status(attempt, AttemptStatus.COLLECTING)
             logger.info(
                 "task.collect.waiting_for_artifact task_id=%s attempt_id=%s",

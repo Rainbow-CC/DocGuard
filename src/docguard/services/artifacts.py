@@ -114,11 +114,19 @@ class ArtifactStore:
                 runtime_patch_path = str(
                     self.skill_set_resolver.write_isolation_patch(agent, workspace).resolve()
                 )
+            if binding.backend is AgentBackend.DSH:
+                # DSH file tools are confined to the SDK cwd. Keep the durable
+                # delivery target inside that specialist's private workspace.
+                run_findings_dir = workspace / "findings"
+                run_findings_dir.mkdir()
+                result_path = run_findings_dir / f"{agent.artifact_stem}.findings.json"
+            else:
+                result_path = agent_dir / "findings" / f"{agent.artifact_stem}.findings.json"
             attempt.agent_runs.append(
                 AgentRun(
                     agent=agent,
                     runtime_binding=binding,
-                    result_uri=f"file://{agent_dir / 'findings' / f'{agent.artifact_stem}.findings.json'}",
+                    result_uri=f"file://{result_path}",
                     execution_backend=task.agent_backend,
                     workspace_path=str(workspace.resolve()),
                     runtime_patch_path=runtime_patch_path,
@@ -163,18 +171,22 @@ class ArtifactStore:
         extension (normally ``.tmp``) and atomically rename only after their
         local validation passes, so partial files are never candidates here.
         """
-        findings_dir = self._local_dir(task.task_id, attempt.attempt_id) / "findings"
-        if not findings_dir.is_dir():
-            return []
-        expected = {run.agent.artifact_stem: run for run in attempt.agent_runs}
         results: list[AgentResult] = []
-        for path in sorted(findings_dir.glob("*.findings.json")):
-            stem = path.name.removesuffix(".findings.json")
-            run = expected.get(stem)
-            if run is None:
-                raise ArtifactValidationError(f"Unexpected findings artifact: {path.name}")
-            results.append(self._read_result_file(task, attempt, run, path))
+        for run in sorted(attempt.agent_runs, key=lambda item: item.agent.artifact_stem):
+            path = self._result_path(task, attempt, run)
+            if path.is_file():
+                results.append(self._read_result_file(task, attempt, run, path))
         return results
+
+    def _result_path(self, task: AuditTask, attempt: AuditAttempt, run: AgentRun) -> Path:
+        """Resolve a frozen AgentRun delivery URI to the local filesystem."""
+        if (run.execution_backend or task.agent_backend) is AgentBackend.DSH and run.workspace_path:
+            return Path(run.workspace_path) / "findings" / f"{run.agent.artifact_stem}.findings.json"
+        return (
+            self._local_dir(task.task_id, attempt.attempt_id)
+            / "findings"
+            / f"{run.agent.artifact_stem}.findings.json"
+        )
 
     def read_result(self, task: AuditTask, attempt: AuditAttempt) -> AgentResult | None:
         """Compatibility accessor for callers expecting a single specialist result."""

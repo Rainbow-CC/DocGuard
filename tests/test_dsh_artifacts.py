@@ -115,7 +115,7 @@ def _result(task, attempt, run) -> dict[str, object]:
 
 
 def _write_result(root: Path, task, attempt, run) -> None:
-    target = root / task.task_id / attempt.attempt_id / "findings" / f"{run.agent.artifact_stem}.findings.json"
+    target = Path(run.workspace_path) / "findings" / f"{run.agent.artifact_stem}.findings.json"
     target.write_text(json.dumps(_result(task, attempt, run), ensure_ascii=False), encoding="utf-8")
 
 
@@ -199,6 +199,11 @@ def test_dsh_runs_specialists_concurrently_and_accepts_dsh_artifacts(
     }
     assert len({run.workspace_path for run in attempt.agent_runs}) == 2
     assert all(Path(run.workspace_path).is_dir() for run in attempt.agent_runs)
+    assert all(
+        Path(run.result_uri.removeprefix("file://")).parent
+        == Path(run.workspace_path) / "findings"
+        for run in attempt.agent_runs
+    )
 
     manifest_path = tmp_path / completed.task_id / attempt.attempt_id / "input-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -229,6 +234,36 @@ def test_dsh_collecting_attempt_can_continue_every_incomplete_specialist(
         "dsh-architecture-reviewer",
     }
     assert completed.attempts[0].error is None
+
+
+def test_dsh_success_without_artifact_fails_instead_of_collecting_forever(
+    tmp_path: Path, review_type_registry
+) -> None:
+    review_type_id = _register_dsh_review_type(review_type_registry)
+
+    class MissingArtifactGateway:
+        def execute_attempt(self, task, attempt, run) -> None:
+            return None
+
+        def continue_attempt(self, task, attempt, run) -> None:
+            raise AssertionError("a successful DSH run with no artifact must not be continued")
+
+    service = AuditTaskService(
+        InMemoryTaskStore(),
+        review_type_registry,
+        artifacts=ArtifactStore(tmp_path, PurePosixPath("/docguard-results")),
+        dsh_gateway=MissingArtifactGateway(),
+        preprocessor=NoopPreprocessor(),
+    )
+    task = _create_dsh_task(service, review_type_id)
+
+    failed = service.run(task.task_id)
+
+    assert failed.status is TaskStatus.FAILED
+    assert failed.error == (
+        "DSH completed without required findings artifact: architecture, content"
+    )
+    assert {run.status.value for run in failed.attempts[0].agent_runs} == {"failed"}
 
 
 def test_continue_endpoint_accepts_a_collecting_dsh_task(
@@ -306,7 +341,7 @@ def test_dsh_gateway_uses_the_run_workspace_and_does_not_return_completion_text(
     )
     run = AgentRun(
         agent=agent,
-        result_uri="file:///docguard-results/task-example/attempt-example/findings/content.findings.json",
+        result_uri=f"file://{tmp_path / 'findings' / 'content.findings.json'}",
         execution_backend=AgentBackend.DSH,
         gateway_session_id="session-example",
         workspace_path=str(tmp_path),
@@ -338,5 +373,6 @@ def test_dsh_gateway_uses_the_run_workspace_and_does_not_return_completion_text(
     assert captured["kwargs"]["patches"] == (str(tmp_path / "skill-isolation.patch.yml"),)
     assert captured["session_id"] == "session-example"
     assert "DOCGUARD_AGENT_BACKEND=dsh" in captured["prompt"]
+    assert f"DOCGUARD_RESULT_FILE={tmp_path / 'findings' / 'content.findings.json'}" in captured["prompt"]
     assert "DOCGUARD_EVIDENCE_DIR=/docguard-results/task-example/attempt-example/evidence" in captured["prompt"]
     assert "DOCGUARD_WORK_DIR=/docguard-results/task-example/attempt-example/work" in captured["prompt"]
