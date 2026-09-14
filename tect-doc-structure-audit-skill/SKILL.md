@@ -35,7 +35,7 @@ Agent 不得重新运行提取、构建上下文、修改 `DOCGUARD_WORK_DIR`，
 
 1. 验证并读取上下文。
 
-   验证 `DOCGUARD_AUDIT_MANIFEST`、`DOCGUARD_RESULT_FILE` 和 `DOCGUARD_WORK_DIR` 存在且非空；`DOCGUARD_RESULT_FILE` 必须以 `.findings.json` 结尾且尚未存在。完整读取一次 `$DOCGUARD_WORK_DIR/extracted/block-formatting-context.json`，确认其包含根级 `items`。文件缺失、为空或 schema 不符时，停止审核并报告输入问题；不得回退读取其他文档产物。
+   验证 `DOCGUARD_AUDIT_MANIFEST` 和 `DOCGUARD_WORK_DIR` 存在且非空；验证 `DOCGUARD_RESULT_FILE` 环境变量非空、路径以 `.findings.json` 结尾、父目录已存在且最终文件尚未存在。完整读取一次 `$DOCGUARD_WORK_DIR/extracted/block-formatting-context.json`，确认其包含根级 `items`。文件缺失、为空或 schema 不符时，停止审核并报告输入问题；不得回退读取其他文档产物。
 
 2. 执行文本结构与格式审核。
 
@@ -67,7 +67,7 @@ Agent 不得重新运行提取、构建上下文、修改 `DOCGUARD_WORK_DIR`，
    test -s "$DOCGUARD_RESULT_FILE"
    ```
 
-   预检会核对证据 ID、类型和原文摘录。预检失败时必须修改 `$PARTIAL_FILE` 并重新运行，禁止绕过预检或继续执行 `mv`。禁止直接写最终 `*.findings.json`，禁止交付半写入文件，禁止以聊天答复、Markdown、JSON 片段或截图替代该文件。完成后聊天最终答复只能简短确认结果文件已写入；不得在答复中重复 Findings。
+   必须原样执行上述 `validate_findings.py`，不得创建或改用自制校验脚本。预检会核对证据 ID、类型和原文摘录。预检失败时必须修改 `$PARTIAL_FILE` 并重新运行；在命令退出码为 0 之前，禁止绕过预检、执行 `mv`、直接写入或保留 `DOCGUARD_RESULT_FILE`。禁止交付半写入文件，禁止以聊天答复、Markdown、JSON 片段或截图替代该文件。完成后聊天最终答复只能简短确认结果文件已写入；不得在答复中重复 Findings。
 
 ## 资源
 

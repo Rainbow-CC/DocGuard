@@ -56,7 +56,7 @@ completion_criteria, evidence_ids, evidence_refs, root_cause_key, agent_backend
 - `severity` 只能为：`重大`、`一般`、`优化`、`观察`。
 - `category` 只能为：`一致性`、`可用性`、`部署`、`安全`、`数据流`、`可读性`。
 - `evidence_ids` 是兼容字段，至少一个；平台展示和校验以 `evidence_refs` 为准。
-- 每个 `evidence_refs[].evidence_id` 必须引用本次 `audit-evidence.json` 中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`。
+- 每个 `evidence_refs[].evidence_id` 必须精确引用本次 `audit-evidence.json` 中的 `block:<索引>`、`table:<索引>` 或图片证据。图片引用的构造规则是 `image:` + `candidate_images[].image_id` 完整原值，不得去掉原值自带的 `image-` 前缀。例如 `image_id` 为 `image-4d618a700a884d57` 时，合法 `evidence_id` 是 `image:image-4d618a700a884d57`，不是 `image:4d618a700a884d57`。
 - 文本和表格 `quote` 必须是相应证据的连续逐字摘录；图片 `quote` 描述可见文字或元素。`explanation` 必须说明证据与结论的关系。
 - `selector` 仅用于表格证据（`table:<block_index>`），用于让页面精确高亮一行或若干单元格。其结构为：
 
@@ -72,7 +72,7 @@ completion_criteria, evidence_ids, evidence_refs, root_cause_key, agent_backend
   - `row_match` 非空时必须且只能匹配一条数据行；列名不存在、匹配零行或多行都会导致预检失败。
   - 不需要精确行/单元格高亮时，`selector` 必须为 `null`；段落和图片证据不得使用 `selector`。
 
-- `region` 仅用于图片证据（`image:<image_id>`），用于在页面上绘制高亮框。其结构为：
+- `region` 仅用于图片证据（例如 `image:image-4d618a700a884d57`），用于在页面上绘制高亮框。其结构为：
 
   ```json
   {"x": 0.05, "y": 0.20, "width": 0.40, "height": 0.15}

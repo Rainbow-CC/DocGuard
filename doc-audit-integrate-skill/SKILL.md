@@ -36,7 +36,7 @@ Agent 必须直接使用这些产物：禁止重新运行提取、构建提示�
 
 1. 读取应用已交付的审计包和视觉结果。
 
-   验证 `DOCGUARD_AUDIT_MANIFEST`、`DOCGUARD_RESULT_FILE` 和 `DOCGUARD_WORK_DIR` 存在且非空；`DOCGUARD_RESULT_FILE` 必须以 `.findings.json` 结尾且尚未存在。完整读取一次 `$DOCGUARD_WORK_DIR/audit-context.md`，需要机器可读证据时仅读取 `$DOCGUARD_WORK_DIR/audit-evidence.json`。`document-structure.json`、原始 DOCX 和图像渲染工具均不属于 Agent 的读取或执行范围。
+   验证 `DOCGUARD_AUDIT_MANIFEST` 和 `DOCGUARD_WORK_DIR` 存在且非空；验证 `DOCGUARD_RESULT_FILE` 环境变量非空、路径以 `.findings.json` 结尾、父目录已存在且最终文件尚未存在。完整读取一次 `$DOCGUARD_WORK_DIR/audit-context.md`，需要机器可读证据时仅读取 `$DOCGUARD_WORK_DIR/audit-evidence.json`。`document-structure.json`、原始 DOCX 和图像渲染工具均不属于 Agent 的读取或执行范围。
 
    对每张已完成视觉理解的图片，读取对应的 `$DOCGUARD_WORK_DIR/vision-responses/<candidate-id>.raw.txt`。视觉响应失败时记录其局限性，但继续完成全文审核。
 
@@ -50,7 +50,7 @@ Agent 必须直接使用这些产物：禁止重新运行提取、构建提示�
 
    - 一个引用只能对应一个证据项。标题和正文位于不同 block 时分别引用，禁止合并为一个 `quote`。
    - 文本和表格 `quote` 必须逐字复制对应证据项中的连续原文；禁止改写、概括、拼接不连续行或使用 `...` / `……` 代替省略内容。
-   - ID 前缀必须与证据类型一致：表格使用 `table:<block_index>`，其他文本块使用 `block:<block_index>`，图片使用 `image:<image_id>`。
+   - ID 前缀必须与证据类型一致：表格使用 `table:<block_index>`，其他文本块使用 `block:<block_index>`。图片必须把 `candidate_images[].image_id` 的完整原值（包括它已有的 `image-` 前缀）拼接到 `image:` 后，禁止删除、替换或重复内部前缀。例如证据包中的 `image_id` 为 `image-4d618a700a884d57` 时，唯一合法引用是 `image:image-4d618a700a884d57`；`image:4d618a700a884d57` 和 `image:image-image-4d618a700a884d57` 都是错误引用。
    - 表格的精确高亮可在 `evidence_refs[].selector` 中提供；只允许用于 `table:<block_index>`，格式为：
    
      ```json
@@ -67,7 +67,7 @@ Agent 必须直接使用这些产物：禁止重新运行提取、构建提示�
 
    `$DOCGUARD_EVIDENCE_DIR/audit-evidence.json` 和 `rendered/` 已由应用写入且只读。只生成临时 findings、执行校验并原子重命名；不得覆盖证据包。
 
-   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；并根据 `DOCGUARD_DIMENSION`、`DOCGUARD_SCOPE`、`DOCGUARD_AGENT_ID`、`DOCGUARD_AGENT_VERSION`、模型引用和 `DOCGUARD_AGENT_BACKEND` 填写本 Agent metadata，不得伪造或猜测它们。`evidence_refs` 只能引用应用已交付证据包中的 `block:<索引>`、`table:<索引>` 或 `image:<图片ID>`；不要编造 ID、原文摘录或图片坐标。先生成临时文件，校验通过后才在同一文件系统原子交付：
+   根据输入 manifest 填写 `task_id`、`attempt_id`、`input_sha256`、Profile、提示词版本、`review_type_id`、`review_type_version` 与 `core_contract_version`；并根据 `DOCGUARD_DIMENSION`、`DOCGUARD_SCOPE`、`DOCGUARD_AGENT_ID`、`DOCGUARD_AGENT_VERSION`、模型引用和 `DOCGUARD_AGENT_BACKEND` 填写本 Agent metadata，不得伪造或猜测它们。`evidence_refs` 只能引用应用已交付证据包中可按上述规则精确构造出的 ID；不要编造 ID、原文摘录或图片坐标。先生成临时文件，使用本 Skill 自带的校验脚本校验通过后，才可在同一文件系统原子交付：
 
    ```bash
    BASE="{baseDir}"
@@ -81,7 +81,7 @@ Agent 必须直接使用这些产物：禁止重新运行提取、构建提示�
    test -s "$DOCGUARD_RESULT_FILE"
    ```
 
-   预检会核对证据 ID、类型、原文摘录、表格 selector 和图片 region。预检失败时必须修改 `$PARTIAL_FILE` 并重新运行，禁止绕过预检或继续执行 `mv`。禁止直接写最终 `*.findings.json`，禁止交付半写入文件，禁止以聊天答复、Markdown、JSON 片段或截图替代该文件。完成后聊天最终答复只能简短确认自己的结果文件已写入；不得在答复中重复 findings。
+   必须原样执行上述 `validate_findings.py`，不得创建或改用自制校验脚本。预检会核对证据 ID、类型、原文摘录、表格 selector 和图片 region。预检失败时必须修改 `$PARTIAL_FILE` 并重新运行；在命令退出码为 0 之前，禁止绕过预检、执行 `mv`、直接写入或保留 `DOCGUARD_RESULT_FILE`。禁止交付半写入文件，禁止以聊天答复、Markdown、JSON 片段或截图替代该文件。完成后聊天最终答复只能简短确认自己的结果文件已写入；不得在答复中重复 findings。
 
 ## 资源
 
