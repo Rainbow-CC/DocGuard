@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 from fastapi.testclient import TestClient
 
 from docguard.domain.models import AgentBackend, AuditAgentDefinition, AuditTask, InputDocument
-from docguard.services.artifacts import ArtifactStore, ArtifactValidationError
+from docguard.services.artifacts import ArtifactStore
 from docguard.services.store import InMemoryTaskStore
 from docguard.services.tasks import AuditTaskService
 
@@ -35,7 +35,10 @@ def _bundle() -> dict[str, object]:
                 "block_index": 7,
                 "type": "table",
                 "chapter_id": "chapter-1",
-                "rows": [["系统指标", "目标值"], ["允许系统数据丢失时间", "故障恢复<=24小时；"]],
+                "rows": [
+                    ["系统指标", "补充说明", "目标值"],
+                    ["允许系统数据丢失时间", "", "故障恢复<=24小时；"],
+                ],
             },
         ],
         "candidate_images": [
@@ -140,22 +143,56 @@ def test_artifact_validates_structured_evidence_and_projects_safe_view(
     assert artifacts.evidence_image_path(task, "image-example").read_bytes() == b"PNG"
 
 
-def test_artifact_rejects_quote_not_in_evidence(tmp_path: Path, technical_review_type) -> None:
+def test_artifact_discards_finding_with_quote_not_in_evidence(
+    tmp_path: Path, technical_review_type, monkeypatch
+) -> None:
+    logged: list[tuple[str, tuple[object, ...]]] = []
+    monkeypatch.setattr(
+        "docguard.services.artifacts.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
+    artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
+    task = _task(technical_review_type)
+    attempt = artifacts.prepare(task)
+    _write_bundle(tmp_path, task, attempt.attempt_id)
+    result_path = tmp_path / task.task_id / attempt.attempt_id / "findings" / "content.findings.json"
+    payload = _result(task, attempt.attempt_id, quote="不存在的原文")
+    valid_finding = _result(task, attempt.attempt_id)["findings"][0]
+    valid_finding["finding_id"] = "fd_valid"
+    payload["findings"].append(valid_finding)
+    result_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    result = artifacts.read_result(task, attempt)
+
+    assert result is not None
+    assert [finding.finding_id for finding in result.findings] == ["fd_valid"]
+    assert any(args[-2:] == (1, 1) for _, args in logged)
+
+
+def test_artifact_accepts_table_quote_that_omits_empty_cells(
+    tmp_path: Path, technical_review_type
+) -> None:
     artifacts = ArtifactStore(tmp_path, PurePosixPath("/docguard-results"))
     task = _task(technical_review_type)
     attempt = artifacts.prepare(task)
     _write_bundle(tmp_path, task, attempt.attempt_id)
     result_path = tmp_path / task.task_id / attempt.attempt_id / "findings" / "content.findings.json"
     result_path.write_text(
-        json.dumps(_result(task, attempt.attempt_id, quote="不存在的原文"), ensure_ascii=False), encoding="utf-8"
+        json.dumps(
+            _result(
+                task,
+                attempt.attempt_id,
+                quote="允许系统数据丢失时间 | 故障恢复<=24小时；",
+            ),
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
 
-    try:
-        artifacts.read_result(task, attempt)
-    except ArtifactValidationError as exc:
-        assert "Evidence quote is not present" in str(exc)
-    else:
-        raise AssertionError("Expected invalid quote to be rejected")
+    result = artifacts.read_result(task, attempt)
+
+    assert result is not None
+    assert len(result.findings) == 1
 
 
 def test_artifact_scans_multiple_final_files_and_ignores_temporary_files(

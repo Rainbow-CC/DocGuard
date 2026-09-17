@@ -61,6 +61,23 @@ def normalize(value: str) -> str:
     return " ".join(value.split())
 
 
+def normalize_table_row(values: list[object]) -> str:
+    return " | ".join(normalized for value in values if (normalized := normalize(str(value))))
+
+
+def table_quote_present(quote: str, rows: object) -> bool:
+    if not isinstance(rows, list):
+        return False
+    normalized_quote = normalize_table_row(quote.split("|"))
+    if not normalized_quote:
+        return False
+    return any(
+        normalized_quote in normalize_table_row(row)
+        for row in rows
+        if isinstance(row, list)
+    )
+
+
 def producer_model_ref(dispatched_run: dict[str, object]) -> str:
     """Project the runtime-specific model identity from a frozen AgentRun."""
     binding = dispatched_run.get("runtime_binding")
@@ -173,7 +190,10 @@ def validate_evidence_ref(ref: dict[str, object], label: str, indexed: dict[str,
             raise ValueError(f"only text/table evidence may define selector: {evidence_id}")
         return
     quote = str(ref["quote"])
-    if normalize(quote) not in normalize(block_content(item)):
+    quote_present = normalize(quote) in normalize(block_content(item))
+    if not quote_present and item.get("type") == "table":
+        quote_present = table_quote_present(quote, item.get("rows", []))
+    if not quote_present:
         raise ValueError(f"{label} quote is not present in {evidence_id}")
     if ref.get("selector") is not None:
         validate_selector(ref["selector"], evidence_id, item)

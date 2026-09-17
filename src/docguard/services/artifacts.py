@@ -6,7 +6,7 @@ import os
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from docguard.domain.models import (
     AgentBackend,
@@ -211,25 +211,54 @@ class ArtifactStore:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ArtifactValidationError(f"Unable to read findings artifact: {exc}") from exc
+        raw_findings = data.get("findings") if isinstance(data, dict) else None
+        if not isinstance(raw_findings, list):
+            raise ArtifactValidationError("Invalid findings artifact: findings must be an array")
         try:
-            result = AgentResult.model_validate(data)
-        except Exception as exc:
+            result = AgentResult.model_validate({**data, "findings": []})
+        except ValidationError as exc:
             raise ArtifactValidationError(f"Invalid findings artifact: {exc}") from exc
         self._validate_metadata(task, attempt, run, result)
         evidence = self.read_evidence(task, attempt)
-        self._validate_evidence_refs(result.findings, evidence)
         expected_backend = run.execution_backend or task.agent_backend
-        for finding in result.findings:
-            if finding.agent_backend is not expected_backend:
-                raise ArtifactValidationError(
-                    f"Findings artifact must declare agent_backend={expected_backend.value}"
+        accepted: list[Finding] = []
+        for index, raw_finding in enumerate(raw_findings):
+            try:
+                finding = Finding.model_validate(raw_finding)
+                self._validate_evidence_refs([finding], evidence)
+                if finding.agent_backend is not expected_backend:
+                    raise ArtifactValidationError(
+                        f"Finding must declare agent_backend={expected_backend.value}"
+                    )
+            except (ArtifactValidationError, ValidationError) as exc:
+                finding_id = (
+                    raw_finding.get("finding_id", "unknown")
+                    if isinstance(raw_finding, dict)
+                    else "unknown"
                 )
+                finding_id = " ".join(str(finding_id).split())
+                reason = " ".join(str(exc).split())
+                logger.warning(
+                    "artifact.finding_discarded task_id=%s attempt_id=%s agent_id=%s "
+                    "finding_index=%s finding_id=%s reason=%s",
+                    task.task_id,
+                    attempt.attempt_id,
+                    run.agent.agent_id,
+                    index,
+                    finding_id,
+                    reason,
+                )
+                continue
+            accepted.append(finding)
+        result.findings = accepted
         logger.info(
-            "artifact.result_validated task_id=%s attempt_id=%s agent_id=%s findings=%s",
+            "artifact.result_validated task_id=%s attempt_id=%s agent_id=%s "
+            "accepted_findings=%s discarded_findings=%s",
             task.task_id,
             attempt.attempt_id,
             run.agent.agent_id,
-            len(result.findings),
+            len(accepted),
+            len(raw_findings) - len(accepted),
         )
         return result
 
@@ -372,7 +401,10 @@ class ArtifactStore:
                     f"Only text/table evidence may define selector: {ref.evidence_id}"
                 )
             return
-        if _normalize(ref.quote) not in _normalize(_block_content(item)):
+        quote_present = _normalize(ref.quote) in _normalize(_block_content(item))
+        if not quote_present and item.get("type") == "table":
+            quote_present = _table_quote_present(ref.quote, item.get("rows", []))
+        if not quote_present:
             raise ArtifactValidationError(f"Evidence quote is not present in {ref.evidence_id}")
         if ref.selector is not None:
             _validate_selector(ref.evidence_id, item, ref)
@@ -402,6 +434,23 @@ def _block_content(block: dict[str, Any]) -> str:
 
 def _normalize(value: str) -> str:
     return " ".join(value.split())
+
+
+def _normalize_table_row(values: list[Any]) -> str:
+    """Normalize a table row while ignoring empty-cell separators."""
+    return " | ".join(normalized for value in values if (normalized := _normalize(str(value))))
+
+
+def _table_quote_present(quote: str, rows: list[Any]) -> bool:
+    quote_cells = quote.split("|")
+    normalized_quote = _normalize_table_row(quote_cells)
+    if not normalized_quote:
+        return False
+    return any(
+        normalized_quote in _normalize_table_row(row)
+        for row in rows
+        if isinstance(row, list)
+    )
 
 
 def _validate_selector(evidence_id: str, block: dict[str, Any], ref: EvidenceRef) -> None:

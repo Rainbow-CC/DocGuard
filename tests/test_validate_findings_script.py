@@ -60,7 +60,10 @@ def _evidence() -> dict[str, object]:
             {
                 "block_index": 35,
                 "type": "table",
-                "rows": [["系统全称", "系统简称"], ["数据中台", "数管平台"]],
+                "rows": [
+                    ["系统全称", "补充说明", "系统简称"],
+                    ["数据中台", "", "数管平台"],
+                ],
             },
         ],
         "candidate_images": [{"image_id": "architecture"}],
@@ -151,6 +154,12 @@ def _run_validator(
 
 def test_preflight_accepts_exact_contiguous_table_quote(tmp_path: Path) -> None:
     completed = _run_validator(tmp_path, _result())
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_preflight_accepts_table_quote_that_omits_empty_cells(tmp_path: Path) -> None:
+    completed = _run_validator(tmp_path, _result(quote="数据中台 | 数管平台"))
 
     assert completed.returncode == 0, completed.stderr
 
