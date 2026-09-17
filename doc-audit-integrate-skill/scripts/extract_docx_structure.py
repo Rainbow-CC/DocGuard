@@ -450,6 +450,32 @@ def level_of(style: str | None, text: str, levels: dict[str, int]) -> int | None
     return int(match.group(1)) if match else (1 if HEADING_RE.match(text) else None)
 
 
+def toc_hyperlink_targets(paragraph: ET.Element, revision_mode: str) -> set[str]:
+    """Return Word bookmark names referenced by a generated TOC entry.
+
+    Word stores each table-of-contents row as a HYPERLINK field (with a nested
+    PAGEREF field for its page number).  Its visible label can look exactly
+    like a numbered heading, so text-based heading detection must not use it
+    as document structure.
+    """
+    targets: set[str] = set()
+    for instruction in visible_descendants(paragraph, {f"{{{W}}}instrText"}, revision_mode):
+        text = instruction.text or ""
+        match = re.search(r"\bHYPERLINK\s+\\l\s+(_Toc\S+)", text, re.I)
+        if match:
+            targets.add(match.group(1))
+    return targets
+
+
+def toc_bookmarks(paragraph: ET.Element, revision_mode: str) -> set[str]:
+    """Return visible bookmarks that are destinations of a generated TOC."""
+    return {
+        name
+        for bookmark in visible_descendants(paragraph, {f"{{{W}}}bookmarkStart"}, revision_mode)
+        if (name := bookmark.get(f"{{{W}}}name")) and name.startswith("_Toc")
+    }
+
+
 def table_rows(table: ET.Element, revision_mode: str) -> list[list[str]]:
     rows: list[list[str]] = []
     for row in table.findall("w:tr", NS):
@@ -681,6 +707,16 @@ def extract(
         media_by_id: dict[str, dict] = {}
         warnings: list[str] = []
         stack: list[dict] = []
+        body_children = list(body) if body is not None else []
+        # A TOC entry is not a heading; a paragraph carrying a bookmark linked
+        # from that TOC is.  Collect the links first because the TOC normally
+        # precedes the destination paragraphs in document order.
+        toc_targets = {
+            target
+            for child in body_children
+            if child.tag == f"{{{W}}}p"
+            for target in toc_hyperlink_targets(child, revision_mode)
+        }
 
         def register_image(rid: str, block: dict) -> str | None:
             target = relationships.get(rid)
@@ -741,13 +777,18 @@ def extract(
         image_tags = {f"{{{A}}}blip", f"{{{V}}}imagedata"}
         object_tag = f"{{{W}}}object"
         ole_tag = f"{{{OFFICE}}}OLEObject"
-        for index, child in enumerate(list(body) if body is not None else []):
+        for index, child in enumerate(body_children):
             tag = child.tag.rsplit("}", 1)[-1]
             if tag == "p":
                 content = text_of(child, revision_mode)
                 style = style_of(child)
+                linked_toc_targets = toc_hyperlink_targets(child, revision_mode)
+                is_toc_entry = bool(linked_toc_targets)
+                is_toc_heading = bool(toc_bookmarks(child, revision_mode) & toc_targets)
                 heading_level = level_of(style, content, levels)
-                level = 1 if heading_level == 1 and not REVISION_HEADING_RE.search(content) else None
+                level = 1 if (
+                    (heading_level == 1 and not is_toc_entry) or is_toc_heading
+                ) and not REVISION_HEADING_RE.search(content) else None
                 if level and content:
                     while stack and stack[-1]["level"] >= level:
                         stack.pop()
@@ -791,8 +832,13 @@ def extract(
                     "type": "table",
                     "cells": format_table(child, styles, default_run_format, revision_mode),
                 })
+        last_block_index = blocks[-1]["index"] if blocks else None
         for position, chapter in enumerate(chapters):
-            chapter["block_end"] = chapters[position + 1]["block_start"] - 1 if position + 1 < len(chapters) else len(blocks) - 1
+            chapter["block_end"] = (
+                chapters[position + 1]["block_start"] - 1
+                if position + 1 < len(chapters)
+                else last_block_index
+            )
         media = list(media_by_id.values())
         if render:
             render_png(media, output, soffice, pdftoppm, vector_dpi, warnings)

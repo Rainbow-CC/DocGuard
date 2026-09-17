@@ -1,191 +1,102 @@
 # DocGuard
 
-## 设计思路
+DocGuard 是面向技术设计文档的智能审核平台。它将规范要求、DOCX 解析、专项 Agent 审核和证据复核整合到同一条可追溯链路中，帮助审核人员更快发现技术架构、部署容量、图文一致性、文档结构与格式等风险，并输出可复核的整改建议。
 
-面向 DOCX 技术文档的证据驱动审核服务骨架。
+当前一期内置“技术架构报告审核”类型，适用于概要设计等 DOCX 技术文档；审核类型、规则包和 Agent 均为版本化配置，可按同一框架扩展至详细设计、测试方案等场景。
 
-处理流程：
+## 系统整体架构
 
-1. 【Agent】执行脚本，将docx 文档解包，利用linux LibreOffice 将visio对象转pdf再栅格化为高精度png（extract_docx_structure.py)，预处理过的内容如下：
-   ```text
-   ./work
-   ├── ./work/audit-context.md
-   ├── ./work/audit-evidence.json
-   ├── ./work/extracted
-   │   ├── ./work/extracted/document-structure.json
-   │   ├── ./work/extracted/embeddings
-   │   │   ├── ./work/extracted/embeddings/oleObject1.bin
-   │   │   ├── ./work/extracted/embeddings/oleObject13.bin
-   │   │   ├── ./work/extracted/embeddings/oleObject3.bin
-   │   │   ├── ./work/extracted/embeddings/oleObject4.bin
-   │   │   ├── ./work/extracted/embeddings/oleObject7.bin
-   │   │   └── ./work/extracted/embeddings/oleObject9.bin
-   │   ├── ./work/extracted/media
-   │   │   ├── ./work/extracted/media/image10.emf
-   │   │   ├── ./work/extracted/media/image14.emf
-   │   │   ├── ./work/extracted/media/image3.emf
-   │   │   ├── ./work/extracted/media/image5.emf
-   │   │   ├── ./work/extracted/media/image6.emf
-   │   │   └── ./work/extracted/media/image8.emf
-   │   └── ./work/extracted/rendered (所有图片渲染为png)
-   │       ├── ./work/extracted/rendered/image-0c6494f30b864b08.png
-   │       ├── ./work/extracted/rendered/image-37bba1471c9829bc.png
-   │       ├── ./work/extracted/rendered/image-3c8e0c86d3eab436.png
-   │       ├── ./work/extracted/rendered/image-6874fc73fe63d8cc.png
-   │       ├── ./work/extracted/rendered/image-de2cbb75a0bcd333.png
-   │       └── ./work/extracted/rendered/image-edf49e27f6407c0e.png
-   ├── ./work/vision-prompt.txt
-   └── ./work/vision-responses (视觉理解应答)
-       ├── ./work/vision-responses/image-0c6494f30b864b08.raw.txt
-       ├── ./work/vision-responses/image-37bba1471c9829bc.raw.txt
-       ├── ./work/vision-responses/image-3c8e0c86d3eab436.raw.txt
-       ├── ./work/vision-responses/image-6874fc73fe63d8cc.raw.txt
-       ├── ./work/vision-responses/image-de2cbb75a0bcd333.raw.txt
-       └── ./work/vision-responses/image-edf49e27f6407c0e.raw.txt
-   ```
-
-2. 构建视觉提示词，架构图降维为json
-
-3. 构建 audit-context， 文本化表示整个docx的结构、内容；
-
-4. 依据skill 里的审核规则，audit-context， 生成结构化审批意见（findings）
-
-5. 结束 与应用的sse 会话，应用从指定路径获取findings，evidence，渲染审核报告；
+![](docs/picture/architectrue.png)
 
 
 
-## 设计亮点
+## 核心能力
 
-### 1. Evidence-first
+- **项目化审核工作台**：在首页统一管理项目，从“文档审核”发起任务，在“任务队列”按项目或文件名跟踪进度。
+- **后端无关的多智能体审核**：默认技术架构审核由内容审核 Agent 与结构审核 Agent 并行交付，分别覆盖技术内容/架构合规性和文档结构/格式问题；可选择 DSH 或 OpenClaw 作为审核后端，单次运行只启用其中一个，平台以相同契约统一汇总结果。
+- **证据驱动结论**：每个问题必须绑定段落、表格或图片证据，并附原文摘录、解释和可选定位信息，避免只有结论、无法核验。
+- **可视化证据复核**：任务详情支持打开证据抽屉，查看命中的原文、表格单元格或渲染后的图件及区域标记。
+- **标准化报告**：程序依据经过校验的结构化 Finding 生成 Markdown 报告，而非让模型直接自由生成最终报告。
+- **规则透明可维护**：审批规则以 Markdown 文件维护，可在页面“审批规则”中按章节阅读；审核 Skill 与规则包可独立迭代。
+- **可恢复任务链路**：Agent/Gateway 连接中断后任务进入 `collecting`，可继续收集已交付工件或恢复既有会话。
 
-DocGuard 不把证据当作报告中的装饰文本，而是把它作为审核结果的第一等数据。Skill 在审核前将 DOCX 拆解为可引用的审计包：`audit-context.md` 提供可读上下文，`audit-evidence.json` 提供稳定的 block、表格和图片 ID，渲染后的图件保存在同一 attempt 中。Finding 通过 `evidence_refs` 指向 `block:<index>`、`table:<index>` 或 `image:<id>`，并携带原文摘录、解释，以及可选的表格单元格选择器或图片区域。指定输出内容（finding）必须包含evidence字段和详细信息，输出内容有专门的校验脚本检查，如果不输出则会校验失败，提示信息返回agent继续工作。
+## 工作流程
 
-例如，审计包中的一段表格证据和 Finding 中的引用可以一一对应：
+```mermaid
+flowchart LR
+    A[上传 DOCX 并选择项目/审核类型] --> B[创建任务与 attempt]
+    B --> C[预处理：提取文本、表格、图片与文档结构]
+    C --> D[建立审计包与视觉事实]
+    D --> E[内容审核 Agent]
+    D --> F[结构审核 Agent]
+    E --> G[交付结构化 findings]
+    F --> G
+    G --> H[校验证据、身份与契约]
+    H --> I[合并结果、生成报告与证据复核]
+```
+
+1. 用户上传 `.docx` 文件，选择所属项目和审核类型。
+2. 平台创建任务及本次 `attempt`，冻结审核类型、审核 Profile 和 Agent 定义快照，保证结果可追溯、可复跑。
+3. 预处理器抽取文档段落、表格、嵌入对象和图片；必要时将图件转换为 PNG，并生成文本审计上下文、证据索引及视觉输入。
+4. 专项 Agent 基于同一审计包并行审核，只写入其被授权的结构化 Finding 工件。
+5. 平台校验工件元数据、Agent 身份、输入哈希、规则维度和每条证据引用；通过后才合并并渲染报告。
+6. 审核人员在任务详情中查看问题、风险等级、整改建议及对应证据，或下载 Markdown 报告。
+
+## 证据与 Finding 契约
+
+证据不是报告中的附注，而是审核结论的必要组成。预处理阶段生成：
+
+- `audit-context.md`：便于 Agent 阅读的文档结构与内容上下文；
+- `audit-evidence.json`：稳定的段落、表格、图片证据索引；
+- `evidence/rendered/`：可由前端受控访问的 PNG 图件；
+- `work/vision-responses/`：逐图视觉模型的原始响应。
+
+[Finding 模型](src/docguard/domain/models.py#L131) 使用 `evidence_refs` 引用 `block:<index>`、`table:<index>` 或 `image:<id>`，并包含原文摘录和解释。表格可指定行列选择器，图件可指定归一化区域。平台会验证引用 ID 和摘录是否真实存在于当前审计包；无效、未知或未完成写入的结果不会进入报告。
+
+平台以交付目录为结果汇聚边界：读取其中所有完成态的 `*.findings.json` 文件，逐一校验工件元数据、Agent 身份、输入哈希、审核维度以及 Finding 和证据契约；校验通过后合并全部文件中的 Findings，并统一展示在任务详情和最终报告中。Agent 应先写入临时文件，并在本地校验通过后原子重命名为 `*.findings.json`；临时文件及其他文件名不会被读取或展示。
 
 ```json
-// audit-evidence.json：原始、可定位的文档内容
-{
-  "block_index": 35,
-  "type": "table",
-  "rows": [
-    ["系统全称", "系统简称"],
-    ["数据中台", "数管平台"]
-  ]
-}
-
-// findings.json：审核结论对该证据的引用
 {
   "evidence_id": "table:35",
   "role": "primary",
   "quote": "数据中台 | 数管平台",
-  "explanation": "该表将“数据中台”简称为“数管平台”，与正文中的系统名称不一致。",
+  "explanation": "表中的系统简称与正文使用的名称不一致。",
   "selector": {
     "row_match": {"系统全称": "数据中台"},
     "columns": ["系统全称", "系统简称"]
-  },
-  "region": null
+  }
 }
 ```
 
-应用据此校验 `quote` 是否来自 `table:35`，并在证据阅读器中准确高亮对应行和单元格。段落证据使用 `block:<index>`，图件证据使用 `image:<id>`；后者可通过归一化的 `region` 标出图中的具体区域。
+## 审核 Agent 与扩展方式
 
+当前 `technical-architecture@1.0.0` 审核类型默认包含以下两个专项 Agent：
 
+| Agent | 维度 | 职责 |
+| --- | --- | --- |
+| `content-reviewer` | `content` | 审核技术内容、架构、部署、容量、图文一致性和文档完整性。 |
+| `structure-reviewer` | `structure` | 审核文档结构与格式。 |
 
-### 2. Finding 契约
+多智能体设计与具体审核后端解耦：DSH 和 OpenClaw 都按照“并行专项审核 + 工件汇聚”模式交付，运行时根据配置二选一，而非共同参与同一次审核。每个 Agent 只能将结果原子写入自己的 `findings/<dimension>[.<scope>].findings.json`，平台只扫描完成态的 `*.findings.json`，并对 task、attempt、输入哈希、维度和注册身份进行交叉校验。
 
-Skill 负责判断，程序负责接受与呈现。
+新增审核类型时，复用现有的 DOCX 提取、证据协议、任务、报告和复核界面；只需新增或配置规则包、Skill、Agent 定义与审核类型关联。具体交付约束见 [doc-audit-integrate-skill/SKILL.md](doc-audit-integrate-skill/SKILL.md) 和 [tect-doc-structure-audit-skill/SKILL.md](tect-doc-structure-audit-skill/SKILL.md)。
 
-`finding-v1` 是平台和所有审核 Skill 之间的稳定边界。它统一定义了规则标识、分类、判定、严重性、置信度、问题描述、影响、修订建议、验收标准、根因键及证据引用等字段；Skill 只能按此结构原子交付自己的 `findings/<dimension>[.<scope>].findings.json`，不得直接生成最终 Markdown/PDF 报告，也不得私自扩展字段。
+## 运行模式
 
-这份契约在两端同时落地，而不是只写在提示词里：
+| 模式 | 用途 | 依赖 |
+| --- | --- | --- |
+| `stub` | 页面、API、存储和报告链路的本地冒烟验证 | 无模型密钥 |
+| `dsh` | 可选审核后端；通过 DeepSeek Harness 以多智能体模式执行审核 Skill | `MINIMAX_CN_API_KEY` 及 DSH 配置 |
+| `openclaw` | 可选审核后端；通过 OpenClaw Gateway 以多智能体模式调度受限审核 Agent | Gateway、Token、模型配置与共享工件目录 |
+| `langchain` | 兼容性图执行路径 | 对应模型配置 |
 
-- **Skill 端**：[`finding-contract.md`](doc-audit-integrate-skill/references/finding-contract.md) 规定必填字段、枚举值、证据引用及定位语义，并通过交付前校验脚本阻止无效工件。
-- **程序端**：[`Finding`](src/docguard/domain/models.py) 使用 Pydantic 固化同一 schema 与值域，工件收集器再结合实际 evidence bundle 做二次校验、合并与渲染。
+`dsh` 与 `openclaw` 是互斥的审核后端选项；通过 `DOCGUARD_DEFAULT_AGENT_BACKEND` 选择其一。无论选择哪种后端，内容审核和结构审核均按同一套多智能体 Finding 契约交付。
 
-双侧约束使 Skill 可以独立演进审核规则，而平台仍能稳定地存储、去重、展示、下载并回归测试所有审核类型的结果；`evidence_ids` 保留兼容读取，新的可定位体验则以 `evidence_refs` 为准。
+视觉审核使用兼容 OpenAI API 的视觉模型；当前默认配置为 DashScope/Qwen，可通过环境变量调整。生产场景建议对每个任务保留输入哈希、Profile/规则/Skill 版本、模型引用、审计包 manifest 和原始视觉响应 URI。
 
-### 3. 框架与业务解耦
+## 快速开始（本地开发）
 
-平台主流程只处理任务生命周期、attempt、工件收集、契约校验、Finding 合并和报告渲染；它不理解某一类文档应检查什么。具体业务规则放在 review pack 和 Skill 中，审核类型通过版本化的 `ReviewTypeDefinition` 绑定 Agent/skill、规则包、视觉策略、核心契约版本和 `AuditProfile`。创建任务时冻结完整定义与 Profile 快照，使同一输入可以按当时的规则和提示词版本重跑、追溯。
-
-```mermaid
-flowchart LR
-    T["平台通用流程\n任务 / attempt / 工件 / 校验 / 报告"] --> C["Finding + Evidence 契约"]
-    R1["技术架构规则包 + Skill"] --> C
-    R2["其他审核类型规则包 + Skill"] --> C
-    C --> O["统一的 Finding 存储、复核界面与报告"]
-```
-
-新增审核类型的主要工作是增加规则包和符合契约的 Skill，而不是复制 API、存储、证据阅读器或报告链路，基础设施升级为队列、对象存储或 PostgreSQL 时不改变审核业务语义。
-
-### 4. 证据渲染
-
-效果图：
-
-![](docs/picture/evidence-render.png)
-
-## 技术架构
-
-![DocGuard 技术架构](docs/picture/architecture.png)
-
-### 分层职责
-
-| 层 | 职责 | 当前实现 | 生产替换 |
-| --- | --- | --- | --- |
-| FastAPI | 创建任务、查询状态、鉴权、展示下载 | `api/app.py` | 保持接口，补鉴权与分页 |
-| Worker | 领取长任务、重试、限流、租约 | FastAPI `BackgroundTasks` 演示实现 | 独立 worker + Redis/RabbitMQ/云队列 |
-| 应用预处理 | 接受修订、DOCX/表格/图件提取、建立审计包、构建视觉提示词并逐图提取事实 | Windows 应用调用 WSL 工具链 | Linux worker + 对象存储 |
-| 审计 Skill | 基于应用交付的审计包、视觉原始响应和架构事实生成 findings | OpenClaw Agent | 受限运行时 + 独立审计包存储 |
-| OpenClaw 调度器 | 并行启动按维度注册的 artifact-delivered Agent 并记录各自 Gateway SSE | `OpenClawAgentGateway` | 队列 worker + 重试 |
-| 工件收集 | 扫描并校验 `findings/*.findings.json` | 共享 WSL 目录 | 对象存储事件/队列 |
-| 存储 | 任务元数据、状态、Finding 与报告 | SQLite `data/docguard.sqlite3` | PostgreSQL + S3/MinIO |
-| 报告 | Findings 渲染及下载 | Markdown | 固定模板 Markdown/PDF |
-
-在 OpenClaw 分支中，Agent 只负责提取、理解、审核和交付结构化工件；应用只负责启动与跟踪任务、接受工件、校验证据、合并结果和生成报告。模型不直接输出最终报告，应用也不承担具体审核规则判断。
-
-## 核心数据契约
-
-多智能体审核的实体关系、工件映射及状态边界见 [`docs/multi-agent-er.md`](docs/multi-agent-er.md)。
-
-`ReviewTypeDefinition` 是平台可选报告审核类型的版本化元数据，保存于 SQLite；应用启动时加载启用类型，主页以下拉框展示。它绑定 OpenClaw Agent/skill、规则包、视觉策略与核心契约版本。创建任务时会冻结完整定义和 `AuditProfile` 快照，保证重跑可复现。
-
-所有审核类型必须共用 DOCX 提取、`audit-context.md`、`audit-evidence.json` 和严格的 `Finding` 契约。类型扩展仅增加 Agent/skill 和规则包，不能分叉证据或结果协议。技术架构审核由运维目录中的 SQL 初始化；工程师可参考 [`报告审核 Agent 扩展模板`](docs/report-review-skill-template.md) 创建新 skill。
-
-应用 worker 负责提取 DOCX、建立审计包，并将单图视觉模型响应原样留存在 attempt 的 `work/vision-responses/` 中。OpenClaw Agent 只负责依据这些原始视觉反馈和审计包生成可定位 Finding。应用校验引用 ID、原文摘录、表格选择器与图片区域，并在任务详情中展示可复核的原文/图件。兼容既有 `evidence_ids`，但旧工件不会获得新证据阅读器的定位能力。
-
-建议生产环境为每个任务冻结：输入文件哈希、Profile 快照、提示词版本、模型引用、审计包 manifest、运行 ID 和原始模型响应 URI。
-
-### Artifact 交付路径
-
-OpenClaw attempt 使用应用与 Agent 共享的结果根目录。应用侧通过 `DOCGUARD_RESULT_WRITE_ROOT` 配置该目录，默认值为 `\\wsl.localhost\\Ubuntu\\home\\ubuntu\\docguard-results`；Agent 侧通过 `DOCGUARD_RESULT_AGENT_ROOT` 使用对应的 WSL 路径，默认值为 `/home/ubuntu/docguard-results`。每次任务和 attempt 的目录结构固定如下：
-
-```text
-<result-root>/
-└── <task_id>/
-    └── <attempt_id>/
-        ├── input-manifest.json
-        ├── work/                         # 应用在 WSL/Linux 中生成的中间工件
-        │   ├── audit-context.md
-        │   ├── audit-evidence.json
-        │   └── vision-responses/
-        ├── findings/
-        │   ├── content.findings.json
-        │   └── architecture.findings.json
-        └── evidence/
-            ├── audit-evidence.json
-            └── rendered/
-                └── *.png
-```
-
-`input-manifest.json`、`work/`、`audit-evidence.json` 和 `rendered/` 均由应用预处理器交付。审核类型注册一个或多个 Agent；每个 Agent 的 `dimension` 是稳定的报告分类，`scope` 是可选的子分类。Agent 只能写入自己的 `findings/<dimension>[.<scope>].findings.json`，先写不匹配扫描规则的临时文件（例如 `.tmp`），校验成功后再原子重命名。应用只扫描 `*.findings.json`，并基于文件 metadata 核对 task、attempt、输入哈希和注册 Agent 身份；随后校验证据引用、汇总 Finding 并按维度生成报告。未注册的完成文件会被拒绝，临时文件不会被读取。
-
-证据引用只能使用当前审计包中的 `block:<block_index>`、`table:<block_index>` 或 `image:<image_id>`。图片文件必须位于该 attempt 的 `evidence/rendered/` 目录内；应用不会把内部文件路径直接暴露给浏览器，而是通过证据接口生成受控图片 URL。完整交付约束见 [`doc-audit-integrate-skill/SKILL.md`](doc-audit-integrate-skill/SKILL.md)。
-
-Windows 开发时，应用通过 `wsl.exe --distribution <发行版>` 调用 WSL 中的 `python3`、LibreOffice 和 Poppler；应用自身从 UNC 读取原始 PNG 并通过 `VisionAdapter` 直接调用视觉 API。将 `DOCGUARD_RESULT_WRITE_ROOT` / `DOCGUARD_RESULT_AGENT_ROOT`、`DOCGUARD_UPLOAD_WRITE_ROOT` / `DOCGUARD_UPLOAD_AGENT_ROOT` 配置为同一共享目录的 Windows / Linux 两种视图，并设置 `DOCGUARD_SKILL_AGENT_ROOT`（例如 `/mnt/c/Code/fromGitHub/DocGuard/doc-audit-integrate-skill`）、`DASHSCOPE_API_KEY` 和可选的 `DOCGUARD_QWEN_BASE_URL` / `DOCGUARD_QWEN_VISION_MODEL`。生产 Linux 中将两组根目录设为相同 Linux 路径，并令 `DOCGUARD_PREPROCESS_COMMAND=bash`；无需改动任务流程或 Agent 提示词。
-
-## 快速开始
-
-需安装 [uv](https://docs.astral.sh/uv/) 和 Python 3.12+。
+前置条件：Python 3.12+ 与 [uv](https://docs.astral.sh/uv/)。完整 DOCX 预处理需要 Linux 工具链；Windows 开发环境可通过 WSL 调用 LibreOffice 和 Poppler。
 
 ```bash
 uv sync --group dev
@@ -193,37 +104,61 @@ uv run python init/apply_sql.py --database-path ./data/docguard.sqlite3
 uv run fastapi dev src/docguard/api/app.py
 ```
 
-`init/` 是运维目录，不被应用导入或执行。它负责创建数据库文件、表、索引、缓存表和初始审核类型；应用启动时只连接已有数据库。详细执行方式见 [`init/README.md`](init/README.md)。
+打开 <http://127.0.0.1:8000> 即可进入工作台。
 
-创建任务：
+初始化脚本是显式运维步骤：它创建 SQLite 数据库、表、索引、项目和初始审核类型；应用启动时只连接已经准备好的数据库。详情见 [init/README.md](init/README.md)。
+
+
+## 配置
+
+将根目录的 `.env.example` 复制为 `.env`，再按部署环境填写密钥和路径。常用变量如下：
+
+| 变量 | 说明 |
+| --- | --- |
+| `DOCGUARD_DEFAULT_AGENT_BACKEND` | 默认执行后端，通常为 `dsh`。 |
+| `MINIMAX_CN_API_KEY` | DSH 审核所需模型密钥（Docker 环境见 `deploy/.env.example`）。 |
+| `DASHSCOPE_API_KEY` | 启用 Qwen 视觉审核所需密钥。 |
+| `OPENCLAW_GATEWAY_URL` / `OPENCLAW_API_TOKEN` | 使用 OpenClaw 后端时的 Gateway 地址与鉴权 Token。 |
+| `DOCGUARD_RESULT_WRITE_ROOT` / `DOCGUARD_RESULT_AGENT_ROOT` | 应用与 Agent 对同一审核工件目录的两种路径视图。 |
+| `DOCGUARD_UPLOAD_WRITE_ROOT` / `DOCGUARD_UPLOAD_AGENT_ROOT` | 应用与 Agent 对上传文件目录的两种路径视图。 |
+| `DOCGUARD_PREPROCESS_COMMAND` | Linux/容器中使用 `bash`；Windows + WSL 开发时使用 `wsl.exe`。 |
+
+不要提交 `.env`、API Key、Gateway Token 或运行目录。上传文件、SQLite、日志和审核工件均属于持久化数据。
+
+## Docker 部署
+
+仓库提供单机 Linux Docker Compose 部署，运行状态统一保存在 `deploy/runtime/`：
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"review_type_id":"technical-architecture","document":{"filename":"方案.docx","content_sha256":"<64位SHA256>","source_uri":"s3://audit-input/方案.docx"}}'
+cp deploy/.env.example deploy/.env
+mkdir -p deploy/runtime
+sudo chown -R 10001:10001 deploy/runtime
+chmod 750 deploy/runtime
+
+# 编辑 deploy/.env，填入实际密钥、路径与 Token
+docker compose --env-file deploy/.env -f deploy/compose.yaml build docguard
+docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm --no-deps \
+  docguard /app/.venv/bin/python /app/init/apply_sql.py \
+  --database-path /var/lib/docguard/docguard.sqlite3
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
+curl -fS http://127.0.0.1:8000/healthz
 ```
 
-运行检查：
-
-```bash
-uv run pytest
-uv run ruff check .
-```
-
-### OpenClaw 安全边界
-
-审核 worker 应当给 OpenClaw 最小工具权限：只读指定审计包与图件、仅允许调用审核模型、仅可写入指定结果目录。不要默认暴露 shell、浏览器、消息发送、任意文件写入或外网写能力。
+- Ubuntu 服务器完整部署与升级：[docs/docker-deploy-server.md](docs/docker-deploy-server.md)
 
 ## 项目结构
 
 ```text
-init/                 # 运维持有的数据库初始化 SQL 与执行脚本
 src/docguard/
-├── api/          # FastAPI 控制面
-├── adapters/     # OpenClaw/LangChain/Stub 执行器
-├── domain/       # 版本化数据契约
-├── graph/        # LangGraph 工作流
-└── services/     # Profile、存储、任务、报告
-tests/            # 最小工作流回归测试
+├── api/                  # FastAPI 接口、运营工作台与审批规则阅读器
+├── adapters/             # DSH、OpenClaw、Stub、LangChain 执行器
+├── domain/               # 版本化领域模型与 Finding 契约
+├── graph/                # 兼容性工作流图
+└── services/             # 任务、预处理、工件、证据、报告、项目与存储服务
+init/                     # 显式数据库初始化 SQL 与脚本
+deploy/                   # Docker 镜像、Compose 与运行时路由配置
+doc-audit-integrate-skill/# 技术架构审核 Skill、规则与契约
+tect-doc-structure-audit-skill/ # 文档结构与格式审核 Skill
+tests/                    # 工作流、契约、接口与预处理回归测试
+docs/                     # 背景、部署、运维与扩展文档
 ```
-

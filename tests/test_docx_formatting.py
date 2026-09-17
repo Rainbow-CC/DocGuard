@@ -164,3 +164,35 @@ def test_context_builds_nested_text_only_tree() -> None:
     assert child["title"]["text"] == "1.1 小节"
     assert child_body["text"] == "小节正文"
     assert second["title"]["text"] == "第二章"
+
+
+def test_extract_does_not_treat_toc_rows_as_chapters(tmp_path) -> None:
+    source = tmp_path / "toc.docx"
+    output = tmp_path / "extracted"
+    document_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>目 录</w:t></w:r></w:p>
+    <w:p>
+      <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+      <w:r><w:instrText> HYPERLINK \\l _TocPurpose </w:instrText></w:r>
+      <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+      <w:r><w:t>1.1 编写目的</w:t></w:r><w:r><w:t>1</w:t></w:r>
+      <w:r><w:fldChar w:fldCharType="end"/></w:r>
+    </w:p>
+    <w:p><w:bookmarkStart w:id="1" w:name="_TocPurpose"/><w:r><w:t>编写目的</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>
+    <w:p><w:r><w:t>正文内容</w:t></w:r></w:p>
+  </w:body>
+</w:document>'''
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+
+    result = extractor.extract(source, output)
+
+    assert [chapter["title"] for chapter in result["chapters"]] == ["编写目的"]
+    assert result["blocks"][1]["text"] == "1.1 编写目的1"
+    assert result["blocks"][1]["chapter_id"] is None
+    assert result["blocks"][2]["chapter_id"] == "chapter-1"
+    assert result["blocks"][3]["chapter_id"] == "chapter-1"
+    assert result["chapters"][0]["block_start"] == 2
+    assert result["chapters"][0]["block_end"] == 3
